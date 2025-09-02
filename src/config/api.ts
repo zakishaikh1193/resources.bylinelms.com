@@ -1,8 +1,8 @@
 // API Configuration
 
 
-const API_BASE_URL = 'https://resources.bylinelms.com/api';
-// const API_BASE_URL = 'http://localhost:5000/api';
+// const API_BASE_URL = 'https://resources.bylinelms.com/api';
+const API_BASE_URL = 'http://localhost:5000/api';
 
 export const API_ENDPOINTS = {
   // Auth endpoints
@@ -37,6 +37,12 @@ export const API_ENDPOINTS = {
   // File uploads
   UPLOAD_RESOURCE: `${API_BASE_URL}/resources`,
   UPLOAD_PREVIEW_IMAGE: `${API_BASE_URL}/upload/preview-image`,
+  
+  // Activity log endpoints
+  ACTIVITY_LOGS: `${API_BASE_URL}/admin/activity/logs`,
+  ACTIVITY_DATA: `${API_BASE_URL}/admin/activity/data`,
+  ACTIVITY_SCHOOL_DOWNLOADS: `${API_BASE_URL}/admin/activity/school-downloads`,
+  ACTIVITY_SUMMARY: `${API_BASE_URL}/admin/activity/summary`,
 };
 
 export const API_CONFIG = {

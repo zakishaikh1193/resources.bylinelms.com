@@ -17,6 +17,7 @@ import AdminViewModal from './AdminViewModal';
 import AdminEditModal from './AdminEditModal';
 import Sidebar from './Sidebar';
 import { API_ENDPOINTS, getFileUrl } from '../config/api';
+import ActivityLog from './ActivityLog';
 
 interface User {
   user_id: number;
@@ -87,7 +88,7 @@ const AdminDashboard: React.FC = () => {
   const [tagModalMode, setTagModalMode] = useState<'create' | 'edit'>('create');
   const [selectedTag, setSelectedTag] = useState<any>(null);
   const [showTagModal, setShowTagModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'content' | 'metadata' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'content' | 'metadata' | 'settings' | 'activity'>('overview');
   
   // School management state
   const [selectedSchool, setSelectedSchool] = useState<User | null>(null);
@@ -2265,6 +2266,10 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
+        {/* Activity Log Tab */}
+        {activeTab === 'activity' && token && (
+          <ActivityLog token={token} />
+        )}
 
       </div>
       </div>
