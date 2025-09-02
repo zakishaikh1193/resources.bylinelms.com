@@ -37,6 +37,7 @@ interface Resource {
   description: string;
   type_name: string;
   subject_name: string;
+  grade_id: number;
   grade_level: string;
   file_name: string;
   file_size: number;
@@ -103,6 +104,11 @@ const AdminDashboard: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Drag and drop state
+  const [draggedResource, setDraggedResource] = useState<Resource | null>(null);
+  const [dragOverResource, setDragOverResource] = useState<Resource | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
   
   // Dashboard statistics state
   const [dashboardStats, setDashboardStats] = useState<{
@@ -1008,6 +1014,97 @@ const AdminDashboard: React.FC = () => {
     };
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, resource: any) => {
+    setDraggedResource(resource);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', resource.resource_id.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleResourceDragOver = (e: React.DragEvent, resource: any) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverResource(resource);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetResource: any) => {
+    e.preventDefault();
+    
+    if (!draggedResource || !targetResource || draggedResource.resource_id === targetResource.resource_id) {
+      return;
+    }
+
+    // Only allow reordering within the same grade
+    if (draggedResource.grade_id !== targetResource.grade_id) {
+      return;
+    }
+
+    setIsReordering(true);
+    
+    try {
+      // Get all resources for this grade
+      const gradeResources = getResourcesForGrade(draggedResource.grade_level);
+      
+      // Find the indices of the dragged and target resources
+      const draggedIndex = gradeResources.findIndex(r => r.resource_id === draggedResource.resource_id);
+      const targetIndex = gradeResources.findIndex(r => r.resource_id === targetResource.resource_id);
+      
+      if (draggedIndex === -1 || targetIndex === -1) {
+        return;
+      }
+
+      // Create new array with reordered resources
+      const reorderedResources = [...gradeResources];
+      const [movedResource] = reorderedResources.splice(draggedIndex, 1);
+      reorderedResources.splice(targetIndex, 0, movedResource);
+      
+      // Extract resource IDs in the new order
+      const resourceIds = reorderedResources.map(r => r.resource_id);
+      
+      // Call API to update the order
+      const requestBody = {
+        gradeId: draggedResource.grade_id,
+        resourceIds: resourceIds
+      };
+      
+      console.log('Sending reorder request:', requestBody);
+      console.log('Dragged resource:', draggedResource);
+      console.log('Target resource:', targetResource);
+      
+      const response = await fetch(API_ENDPOINTS.RESOURCES_REORDER, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (response.ok) {
+        // Refresh resources to get updated order
+        await fetchResources();
+      } else {
+        console.error('Failed to reorder resources');
+      }
+    } catch (error) {
+      console.error('Error reordering resources:', error);
+    } finally {
+      setIsReordering(false);
+      setDraggedResource(null);
+      setDragOverResource(null);
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    setDraggedResource(null);
+    setDragOverResource(null);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1741,8 +1838,23 @@ const AdminDashboard: React.FC = () => {
                               onView={() => openResourceViewModal(resource)}
                               onEdit={() => openResourceEditModal(resource)}
                               onDelete={() => handleDeleteResource(resource.resource_id)}
+                              isDraggable={contentMode === 'edit'}
+                              isDragging={draggedResource?.resource_id === resource.resource_id}
+                              dragOverResource={dragOverResource ? convertToResourceCardFormat(dragOverResource) : null}
+                              onDragStart={(e) => handleDragStart(e, resource)}
+                              onDragOver={(e) => handleResourceDragOver(e, resource)}
+                              onDrop={(e) => handleDrop(e, resource)}
+                              onDragEnd={handleDragEnd}
                             />
                           ))}
+                          
+                          {/* Reordering indicator */}
+                          {isReordering && (
+                            <div className="flex items-center justify-center p-4 text-blue-600">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                              <span className="text-sm">Reordering resources...</span>
+                            </div>
+                          )}
                           
                           {/* Add Resource Card - Always shown in Edit mode */}
                           {contentMode === 'edit' && (

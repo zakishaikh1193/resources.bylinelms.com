@@ -1,10 +1,8 @@
 // API Configuration
 
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://resources.bylinelms.com/api'
-  : 'http://localhost:5000/api';
-
+const API_BASE_URL = 'https://resources.bylinelms.com/api';
+// const API_BASE_URL = 'http://localhost:5000/api';
 
 export const API_ENDPOINTS = {
   // Auth endpoints
@@ -27,6 +25,7 @@ export const API_ENDPOINTS = {
   RESOURCE_BY_ID: (id: number) => `${API_BASE_URL}/resources/${id}`,
   RESOURCE_DOWNLOAD: (id: number) => `${API_BASE_URL}/resources/${id}/download`,
   RESOURCE_LIKE: (id: number) => `${API_BASE_URL}/resources/${id}/like`,
+  RESOURCES_REORDER: `${API_BASE_URL}/resources/reorder`,
   USER_RESOURCES: `${API_BASE_URL}/resources/user/my-resources`,
   
   // Metadata endpoints
@@ -42,7 +41,6 @@ export const API_ENDPOINTS = {
 
 export const API_CONFIG = {
   BASE_URL: API_BASE_URL,
-  TIMEOUT: 10000, // 10 seconds
   RETRY_ATTEMPTS: 3,
 };
 

@@ -303,8 +303,7 @@ export const AddResourceModal: React.FC<AddResourceModalProps> = ({
       // Use XMLHttpRequest for real progress tracking
       const xhr = new XMLHttpRequest();
       
-      // Set timeout to 10 minutes for large files
-      xhr.timeout = 600000;
+      // No timeout for large file uploads
       
       return new Promise((resolve, reject) => {
         xhr.upload.addEventListener('progress', (event) => {
@@ -363,11 +362,7 @@ export const AddResourceModal: React.FC<AddResourceModalProps> = ({
           reject(new Error('Network error'));
         });
 
-        xhr.addEventListener('timeout', () => {
-          setError('Upload timeout. File may be too large or connection too slow.');
-          setIsLoading(false);
-          reject(new Error('Upload timeout'));
-        });
+
 
         xhr.open('POST', API_ENDPOINTS.UPLOAD_RESOURCE);
         xhr.setRequestHeader('Authorization', `Bearer ${token}`);
