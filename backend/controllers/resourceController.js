@@ -403,7 +403,7 @@ const getAllResources = async (req, res) => {
        JOIN grades g ON r.grade_id = g.grade_id
        JOIN users u ON r.created_by = u.user_id
        ${whereClause}
-       ORDER BY r.created_at DESC
+       ORDER BY r.display_order ASC, r.created_at DESC
        LIMIT ? OFFSET ?`,
       [...params, limitValue, offsetValue]
     );
@@ -898,7 +898,7 @@ const getUserResources = async (req, res) => {
        JOIN subjects s ON r.subject_id = s.subject_id
        JOIN grades g ON r.grade_id = g.grade_id
        WHERE r.created_by = ?
-       ORDER BY r.created_at DESC
+       ORDER BY r.display_order ASC, r.created_at DESC
        LIMIT ? OFFSET ?`,
       [req.user.user_id, parseInt(limit), offset]
     );
@@ -932,6 +932,57 @@ const getUserResources = async (req, res) => {
   }
 };
 
+// Reorder resources within a grade
+const reorderResources = async (req, res) => {
+  try {
+    console.log('Reorder request body:', req.body);
+    console.log('Request body type:', typeof req.body);
+    console.log('gradeId:', req.body.gradeId, 'type:', typeof req.body.gradeId);
+    console.log('resourceIds:', req.body.resourceIds, 'type:', typeof req.body.resourceIds);
+    
+    const { gradeId, resourceIds } = req.body;
+    
+    if (!gradeId || !resourceIds || !Array.isArray(resourceIds)) {
+      console.log('Validation failed:', { gradeId, resourceIds, isArray: Array.isArray(resourceIds) });
+      return res.status(400).json({
+        success: false,
+        message: 'Grade ID and resource IDs array are required'
+      });
+    }
+
+    // Start transaction
+    await pool.query('START TRANSACTION');
+
+    try {
+      // Update display_order for each resource
+      for (let i = 0; i < resourceIds.length; i++) {
+        await pool.execute(
+          'UPDATE resources SET display_order = ? WHERE resource_id = ? AND grade_id = ?',
+          [i + 1, resourceIds[i], gradeId]
+        );
+      }
+
+      // Commit transaction
+      await pool.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Resources reordered successfully'
+      });
+    } catch (error) {
+      // Rollback on error
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+  } catch (error) {
+    console.error('Reorder resources error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reorder resources'
+    });
+  }
+};
+
 module.exports = {
   createResource,
   getResources,
@@ -943,5 +994,6 @@ module.exports = {
   toggleLike,
   getPopularResources,
   getUserResources,
+  reorderResources,
   debugUploadConfig
 };

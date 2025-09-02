@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5000;
 
 // CORS configuration - optimized for large uploads
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:4173', 'https://resources.bylinelms.com'],
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://resources.bylinelms.com'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -39,9 +39,7 @@ app.use(express.urlencoded({
 
 // Optimize for large file uploads
 app.use((req, res, next) => {
-  // Increase timeout for large uploads
-  req.setTimeout(900000); // 15 minutes
-  res.setTimeout(900000); // 15 minutes
+  // No timeout for large uploads
   
   // Set headers for better upload handling
   res.setHeader('X-Content-Type-Options', 'nosniff');

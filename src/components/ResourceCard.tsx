@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Video, Presentation, Activity, ClipboardCheck, Heart, MessageCircle, Calendar, User, BookOpen, Edit, Trash2, Download } from 'lucide-react';
+import { FileText, Video, Presentation, Activity, ClipboardCheck, Heart, MessageCircle, Calendar, User, BookOpen, Edit, Trash2, Download, GripVertical } from 'lucide-react';
 import { Resource } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -10,6 +10,13 @@ interface ResourceCardProps {
   onEdit?: (resource: Resource) => void;
   onDelete?: (resourceId: string) => void;
   onView?: (resource: Resource) => void;
+  // Drag and drop props
+  isDraggable?: boolean;
+  dragOverResource?: Resource | null;
+  onDragStart?: (e: React.DragEvent, resource: Resource) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent, resource: Resource) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
 }
 
 const typeIcons = {
@@ -65,7 +72,13 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   viewMode, 
   onEdit, 
   onDelete,
-  onView
+  onView,
+  isDraggable = false,
+  dragOverResource,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
 }) => {
   const { user } = useAuth();
   console.log('Resource type:', resource.type, 'Available types:', Object.keys(typeIcons));
@@ -77,14 +90,45 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
     // This would typically trigger a download from the backend
   };
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (isDraggable && onDragStart) {
+      onDragStart(e, resource);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (isDraggable && onDragOver) {
+      onDragOver(e);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (isDraggable && onDrop) {
+      onDrop(e, resource);
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    if (isDraggable && onDragEnd) {
+      onDragEnd(e);
+    }
+  };
+
   return (
     <div 
       className={`
         bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden cursor-pointer w-96
         hover:shadow-xl hover:border-purple-200 transition-all duration-300 group
         ${isDragging ? 'rotate-2 shadow-2xl scale-105' : ''}
+        ${isDraggable ? 'cursor-grab active:cursor-grabbing' : ''}
+        ${dragOverResource?.id === resource.id ? 'ring-2 ring-blue-400 ring-opacity-50' : ''}
       `}
       onClick={() => onView?.(resource)}
+      draggable={isDraggable}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
     >
       {/* Preview Image */}
       {resource.previewImage && (
@@ -101,6 +145,15 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           {/* Admin Actions Overlay */}
           {user?.role === 'admin' && viewMode === 'edit' && (
             <div className="absolute top-3 right-3 flex items-center space-x-2">
+              {/* Drag Handle */}
+              {isDraggable && (
+                <div
+                  className="p-2 bg-white/90 text-gray-400 cursor-grab active:cursor-grabbing rounded-xl shadow-lg backdrop-blur-sm"
+                  title="Drag to reorder"
+                >
+                  <GripVertical size={16} />
+                </div>
+              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();

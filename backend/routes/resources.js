@@ -24,6 +24,7 @@ router.post('/', verifyToken, requireAdmin, uploadMultiple, handleUploadError, v
 router.put('/:id', verifyToken, requireAdmin, uploadMultiple, handleUploadError, validateResourceId, validateResourceUpdate, resourceController.updateResource);
 router.delete('/:id', verifyToken, requireAdmin, validateResourceId, resourceController.deleteResource);
 router.post('/:id/like', verifyToken, validateResourceId, resourceController.toggleLike);
+router.post('/reorder', verifyToken, requireAdmin, resourceController.reorderResources);
 router.get('/user/my-resources', verifyToken, validatePagination, resourceController.getUserResources);
 
 module.exports = router;
