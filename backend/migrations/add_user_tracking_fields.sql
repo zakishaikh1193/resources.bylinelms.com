@@ -13,3 +13,4 @@ ADD INDEX idx_last_ip (last_ip);
 
 -- Update existing users to have a default last_login value
 UPDATE users SET last_login = created_at WHERE last_login IS NULL;
+

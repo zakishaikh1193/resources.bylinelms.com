@@ -19,6 +19,7 @@ interface AuthContextType {
   logout: () => void;
   isLoading: boolean;
   isAuthenticated: boolean;
+  validateToken: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -96,6 +97,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('user');
   };
 
+  const validateToken = async (): Promise<boolean> => {
+    if (!token) return false;
+    
+    try {
+      const response = await fetch(API_ENDPOINTS.PROFILE, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.status === 401) {
+        // Token is invalid or expired
+        logout();
+        return false;
+      }
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Token validation error:', error);
+      return false;
+    }
+  };
+
   const isAuthenticated = !!user && !!token;
 
   const value: AuthContextType = {
@@ -105,6 +130,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     logout,
     isLoading,
     isAuthenticated,
+    validateToken,
   };
 
   return (

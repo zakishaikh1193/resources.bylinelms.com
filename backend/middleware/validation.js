@@ -112,12 +112,28 @@ const validateResourceCreation = [
     .withMessage('Valid resource type ID is required'),
   body('tags')
     .optional()
-    .isArray()
-    .withMessage('Tags must be an array'),
-  body('tags.*')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Valid tag IDs are required'),
+    .custom((value) => {
+      // Allow tags to be an array, string, or undefined
+      if (value === undefined || value === null || value === '') {
+        return true; // Optional field
+      }
+      if (Array.isArray(value)) {
+        return value.every(tag => Number.isInteger(Number(tag)) && Number(tag) > 0);
+      }
+      if (typeof value === 'string') {
+        // Try to parse as JSON array or comma-separated values
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) && parsed.every(tag => Number.isInteger(Number(tag)) && Number(tag) > 0);
+        } catch {
+          // If JSON parsing fails, treat as comma-separated values
+          const tags = value.split(',').map(tag => tag.trim());
+          return tags.every(tag => Number.isInteger(Number(tag)) && Number(tag) > 0);
+        }
+      }
+      return false;
+    })
+    .withMessage('Tags must be valid tag IDs'),
   handleValidationErrors
 ];
 

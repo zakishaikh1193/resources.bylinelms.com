@@ -408,6 +408,19 @@ const getAllResources = async (req, res) => {
       [...params, limitValue, offsetValue]
     );
 
+    // Debug: Log preview image paths for each resource
+    console.log('=== RESOURCE PREVIEW IMAGES DEBUG ===');
+    resources.forEach((resource, index) => {
+      console.log(`Resource ${index + 1}:`, {
+        id: resource.resource_id,
+        title: resource.title,
+        preview_image: resource.preview_image,
+        file_name: resource.file_name,
+        file_path: resource.file_path
+      });
+    });
+    console.log('=== END PREVIEW IMAGES DEBUG ===');
+
     // Get tags for each resource
     const resourcesWithTags = await Promise.all(
       resources.map(async (resource) => {
@@ -731,6 +744,28 @@ const deleteResource = async (req, res) => {
 const downloadResource = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Check for token in query parameters (for admin downloads from activity log)
+    if (req.query.token && !req.user) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(req.query.token, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here_2024_byline_learning_solutions');
+        
+        // Get user details
+        const [users] = await pool.execute(
+          'SELECT user_id, name, email, role FROM users WHERE user_id = ?',
+          [decoded.user_id]
+        );
+        
+        if (users.length > 0) {
+          req.user = users[0];
+          console.log('✅ Admin authenticated via query token for download:', req.user.email);
+        }
+      } catch (tokenError) {
+        console.log('❌ Invalid token in query parameter:', tokenError.message);
+        // Continue without authentication (anonymous download)
+      }
+    }
 
     // Get resource
     const [resources] = await pool.execute(
@@ -769,11 +804,88 @@ const downloadResource = async (req, res) => {
       [id]
     );
 
-    // Log activity
+    // Log activity to activity_logs table
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, resource_id, details, ip_address) VALUES (?, ?, ?, ?, ?)',
       [req.user?.user_id || null, 'RESOURCE_DOWNLOADED', id, JSON.stringify({ title: resource.title }), req.ip]
     );
+
+    // If it's a school user, also log to school_activity_logs table
+    if (req.user && req.user.role === 'school') {
+      try {
+        // Get school details
+        const [schoolDetails] = await pool.execute(
+          'SELECT name, email, organization FROM users WHERE user_id = ?',
+          [req.user.user_id]
+        );
+
+        if (schoolDetails.length > 0) {
+          const school = schoolDetails[0];
+          
+          // Get complete resource details for logging including subject and grade
+          const [resourceDetails] = await pool.execute(`
+            SELECT 
+              r.title, 
+              r.file_name,
+              r.file_size, 
+              r.file_extension,
+              rt.type_name as resource_type,
+              s.subject_name,
+              g.grade_level
+            FROM resources r
+            LEFT JOIN resource_types rt ON r.type_id = rt.type_id
+            LEFT JOIN subjects s ON r.subject_id = s.subject_id
+            LEFT JOIN grades g ON r.grade_id = g.grade_id
+            WHERE r.resource_id = ?
+          `, [id]);
+
+          if (resourceDetails.length > 0) {
+            const resource = resourceDetails[0];
+            
+            // Create additional details JSON with comprehensive information
+            const additionalDetails = {
+              subject: resource.subject_name || 'Not specified',
+              grade: resource.grade_level || 'Not specified',
+              resource_type: resource.resource_type || resource.file_extension,
+              file_size: resource.file_size,
+              file_extension: resource.file_extension,
+              download_timestamp: new Date().toISOString(),
+              user_role: 'school',
+              organization: school.organization
+            };
+            
+            await pool.execute(
+              `INSERT INTO school_activity_logs (
+                school_name, school_email, school_organization, 
+                activity_type, resource_name, downloaded_file_name, file_name, resource_type, 
+                subject_name, grade_level, ip_address, user_agent, 
+                file_size, file_extension
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                school.name,
+                school.email,
+                school.organization,
+                'resource_download',
+                resource.title,
+                resource.title, // downloaded_file_name - same as resource title for now
+                resource.file_name, // file_name - the actual file name
+                resource.resource_type || resource.file_extension,
+                resource.subject_name || 'Not specified',
+                resource.grade_level || 'Not specified',
+                req.ip,
+                req.get('User-Agent'),
+                resource.file_size,
+                resource.file_extension
+              ]
+            );
+            console.log(`School download logged to school_activity_logs: ${school.name} downloaded ${resource.title} (${resource.subject_name} - ${resource.grade_level})`);
+          }
+        }
+      } catch (logError) {
+        console.error('Failed to log school download to school_activity_logs:', logError.message);
+        // Don't fail the download if logging fails
+      }
+    }
 
     // Send file
     res.download(resource.file_path, resource.file_name);
@@ -983,6 +1095,147 @@ const reorderResources = async (req, res) => {
   }
 };
 
+// Track resource view
+const trackResourceView = async (req, res) => {
+  try {
+    const { id } = req.params; // Changed from resource_id to id to match route
+    const resource_id = id; // Use id as resource_id
+    const user_id = req.user?.user_id || null;
+    const ip_address = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const user_agent = req.headers['user-agent'] || 'Unknown';
+
+    console.log('🔍 [DEBUG] Tracking resource view:', {
+      resource_id,
+      user_id,
+      ip_address,
+      user_agent,
+      params: req.params,
+      body: req.body
+    });
+
+    // Validate resource_id
+    if (!resource_id || isNaN(resource_id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid resource ID'
+      });
+    }
+
+    // Get resource title for activity log
+    const [resources] = await pool.execute(
+      'SELECT title FROM resources WHERE resource_id = ?',
+      [resource_id]
+    );
+
+    if (resources.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Resource not found'
+      });
+    }
+
+    const resource = resources[0];
+
+    // Insert into resource_views table for detailed tracking
+    await pool.execute(
+      'INSERT INTO resource_views (resource_id, user_id, ip_address, user_agent) VALUES (?, ?, ?, ?)',
+      [resource_id, user_id, ip_address, user_agent]
+    );
+
+    // Update view count in resources table
+    await pool.execute(
+      'UPDATE resources SET view_count = view_count + 1 WHERE resource_id = ?',
+      [resource_id]
+    );
+
+    // Insert into activity_logs table
+    const [result] = await pool.execute(
+      `INSERT INTO activity_logs (user_id, action, resource_id, ip_address, user_agent, details, created_at) 
+       VALUES (?, 'RESOURCE_VIEW', ?, ?, ?, ?, NOW())`,
+      [user_id, resource_id, ip_address, user_agent, JSON.stringify({ title: resource.title, view_method: 'web' })]
+    );
+
+    console.log('✅ [SUCCESS] Resource view tracked:', result.insertId);
+
+    res.json({
+      success: true,
+      message: 'Resource view tracked successfully',
+      view_id: result.insertId
+    });
+
+  } catch (error) {
+    console.error('❌ [ERROR] Track resource view error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to track resource view',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Remove latest view log for a resource (when download occurs in same session)
+const removeLatestViewLog = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resource_id = id;
+    const user_id = req.user?.user_id || null;
+
+    console.log('🔍 [DEBUG] Removing latest view log:', {
+      resource_id,
+      user_id
+    });
+
+    // Validate resource_id
+    if (!resource_id || isNaN(resource_id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid resource ID'
+      });
+    }
+
+    // Find and delete the most recent RESOURCE_VIEW log for this user and resource
+    const [deleteResult] = await pool.execute(
+      `DELETE FROM activity_logs 
+       WHERE user_id = ? AND resource_id = ? AND action = 'RESOURCE_VIEW' 
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [user_id, resource_id]
+    );
+
+    if (deleteResult.affectedRows > 0) {
+      // Also decrement the view count in resources table
+      await pool.execute(
+        'UPDATE resources SET view_count = GREATEST(view_count - 1, 0) WHERE resource_id = ?',
+        [resource_id]
+      );
+
+      console.log('✅ [SUCCESS] Latest view log removed:', deleteResult.affectedRows, 'rows affected');
+      
+      res.json({
+        success: true,
+        message: 'Latest view log removed successfully',
+        removed_count: deleteResult.affectedRows
+      });
+    } else {
+      console.log('ℹ️ [INFO] No view log found to remove for resource:', resource_id);
+      
+      res.json({
+        success: true,
+        message: 'No view log found to remove',
+        removed_count: 0
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ [ERROR] Remove latest view log error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove latest view log',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
   createResource,
   getResources,
@@ -995,5 +1248,7 @@ module.exports = {
   getPopularResources,
   getUserResources,
   reorderResources,
-  debugUploadConfig
+  debugUploadConfig,
+  trackResourceView,
+  removeLatestViewLog
 };

@@ -178,3 +178,4 @@ SELECT 'Table created successfully!' as status;
 DESCRIBE school_activity_logs;
 SELECT COUNT(*) as total_records FROM school_activity_logs;
 SELECT * FROM school_activity_logs LIMIT 5;
+

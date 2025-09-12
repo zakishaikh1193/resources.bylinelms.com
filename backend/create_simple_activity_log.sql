@@ -128,3 +128,4 @@ ORDER BY activity_timestamp DESC;
 
 -- Show summary by school
 SELECT * FROM school_activity_summary ORDER BY total_activities DESC;
+

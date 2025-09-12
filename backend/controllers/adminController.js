@@ -139,9 +139,186 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
-// Get activity logs with filters
+// Get activity logs - USING EXISTING activity_logs TABLE
 const getActivityLogs = async (req, res) => {
   try {
+    console.log('🔍 [DEBUG] getActivityLogs called');
+    console.log('🔍 [DEBUG] Request query:', req.query);
+    console.log('🔍 [DEBUG] User from auth middleware:', req.user);
+    
+    const { 
+      page = 1, 
+      limit = 20, 
+      action, 
+      school_name, 
+      start_date, 
+      end_date
+    } = req.query;
+
+    console.log('🔍 [DEBUG] Parsed query params:', { page, limit, action, school_name, start_date, end_date });
+
+    const offset = (page - 1) * limit;
+    const conditions = [];
+    const params = [];
+
+    // Build WHERE conditions
+    if (action) {
+      // Map frontend action to database action
+      let dbAction;
+      switch(action) {
+        case 'login': dbAction = 'USER_LOGIN'; break;
+        case 'resource_download': dbAction = 'RESOURCE_DOWNLOADED'; break;
+        case 'resource_view': dbAction = 'RESOURCE_VIEW'; break;
+        case 'resource_upload': dbAction = 'RESOURCE_CREATED'; break;
+        case 'resource_edit': dbAction = 'RESOURCE_UPDATED'; break;
+        default: dbAction = action;
+      }
+      conditions.push('al.action = ?');
+      params.push(dbAction);
+    }
+
+    if (school_name && school_name !== 'all') {
+      conditions.push('u.name = ?');
+      params.push(school_name);
+    }
+
+    if (start_date) {
+      conditions.push('DATE(al.created_at) >= ?');
+      params.push(start_date);
+    }
+
+    if (end_date) {
+      conditions.push('DATE(al.created_at) <= ?');
+      params.push(end_date);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+    console.log('🔍 [DEBUG] WHERE clause:', whereClause);
+    console.log('🔍 [DEBUG] Query params:', [...params, parseInt(limit), offset]);
+
+    // Use the existing activity_logs table with user information
+    // Map database actions to frontend expected activity types
+    const query = `SELECT 
+        al.log_id,
+        al.resource_id,
+        COALESCE(u.name, 'Unknown User') as school_name,
+        COALESCE(u.email, 'No email') as school_email,
+        COALESCE(u.organization, u.name, 'Unknown Organization') as school_organization,
+        CASE 
+          WHEN al.action = 'USER_LOGIN' THEN 'login'
+          WHEN al.action = 'RESOURCE_DOWNLOADED' THEN 'resource_download'
+          WHEN al.action = 'RESOURCE_VIEW' THEN 'resource_view'
+          WHEN al.action = 'RESOURCE_CREATED' THEN 'resource_upload'
+          WHEN al.action = 'RESOURCE_UPDATED' THEN 'resource_edit'
+          WHEN al.action = 'ADMIN_CREATE_SCHOOL' THEN 'school_created'
+          ELSE 'other'
+        END as activity_type,
+        CASE 
+          WHEN al.action = 'USER_LOGIN' THEN NULL
+          WHEN al.action = 'ADMIN_CREATE_SCHOOL' THEN NULL
+          ELSE COALESCE(JSON_UNQUOTE(JSON_EXTRACT(al.details, '$.title')), r.title, 'No resource')
+        END as resource_name,
+        NULL as downloaded_file_name,
+        NULL as file_name,
+        COALESCE(rt.type_name, 'Unknown') as resource_type,
+        COALESCE(s.subject_name, 'Unknown') as subject_name,
+        COALESCE(g.grade_level, 'Unknown') as grade_level,
+        al.ip_address,
+        al.user_agent,
+        al.created_at as login_time,
+        al.created_at as activity_timestamp,
+        COALESCE(r.file_size, 0) as file_size,
+        COALESCE(r.file_extension, 'Unknown') as file_extension,
+        al.created_at
+       FROM activity_logs al
+       LEFT JOIN users u ON al.user_id = u.user_id
+       LEFT JOIN resources r ON al.resource_id = r.resource_id
+       LEFT JOIN resource_types rt ON r.type_id = rt.type_id
+       LEFT JOIN subjects s ON r.subject_id = s.subject_id
+       LEFT JOIN grades g ON r.grade_id = g.grade_id
+       ${whereClause}
+       ORDER BY al.created_at DESC
+       LIMIT ? OFFSET ?`;
+    
+    // Try using string concatenation for LIMIT/OFFSET to avoid parameter binding issues
+    const limitInt = parseInt(limit);
+    const offsetInt = parseInt(offset);
+    console.log('🔍 [DEBUG] Converted parameters:', { limitInt, offsetInt, typeLimit: typeof limitInt, typeOffset: typeof offsetInt });
+    
+    const finalQuery = query.replace('LIMIT ? OFFSET ?', `LIMIT ${limitInt} OFFSET ${offsetInt}`);
+    console.log('🔍 [DEBUG] Final query:', finalQuery);
+    console.log('🔍 [DEBUG] Query parameters (without LIMIT/OFFSET):', params);
+    
+    const [logs] = await pool.execute(finalQuery, params);
+    console.log('🔍 [DEBUG] Query executed successfully, logs count:', logs.length);
+
+    // Get total count
+    console.log('🔍 [DEBUG] Getting total count...');
+    const countQuery = `SELECT COUNT(*) as total 
+      FROM activity_logs al
+      LEFT JOIN users u ON al.user_id = u.user_id
+      LEFT JOIN resources r ON al.resource_id = r.resource_id
+      ${whereClause}`;
+    console.log('🔍 [DEBUG] Count query:', countQuery);
+    console.log('🔍 [DEBUG] Count params:', params);
+    
+    const [countResult] = await pool.execute(countQuery, params);
+    console.log('🔍 [DEBUG] Count result:', countResult);
+
+    const total = countResult[0].total;
+    console.log('🔍 [DEBUG] Total count:', total);
+
+    const response = {
+      success: true,
+      data: {
+        logs: logs,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    };
+    
+    console.log('🔍 [DEBUG] Sending response:', JSON.stringify(response, null, 2));
+    res.json(response);
+  } catch (error) {
+    console.error('❌ [ERROR] Get activity logs error:', error);
+    console.error('❌ [ERROR] Error details:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      stack: error.stack
+    });
+    
+    const errorResponse = {
+      success: false,
+      message: 'Failed to get activity logs',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      debug: process.env.NODE_ENV === 'development' ? {
+        code: error.code,
+        errno: error.errno,
+        sqlState: error.sqlState,
+        sqlMessage: error.sqlMessage
+      } : undefined
+    };
+    
+    console.error('❌ [ERROR] Sending error response:', JSON.stringify(errorResponse, null, 2));
+    res.status(500).json(errorResponse);
+  }
+};
+
+// Get comprehensive activity data from multiple sources - SIMPLIFIED VERSION
+const getActivityData = async (req, res) => {
+  try {
+    console.log('🔍 [DEBUG] getActivityData called');
+    console.log('🔍 [DEBUG] Request query:', req.query);
+    console.log('🔍 [DEBUG] User from auth middleware:', req.user);
+    
     const { 
       page = 1, 
       limit = 20, 
@@ -152,6 +329,8 @@ const getActivityLogs = async (req, res) => {
       sort = 'created_at',
       order = 'DESC'
     } = req.query;
+    
+    console.log('🔍 [DEBUG] Parsed query params:', { page, limit, action, user_id, start_date, end_date, sort, order });
 
     const offset = (page - 1) * limit;
     const conditions = [];
@@ -159,8 +338,18 @@ const getActivityLogs = async (req, res) => {
 
     // Build WHERE conditions
     if (action) {
+      // Map frontend action to database action
+      let dbAction;
+      switch(action) {
+        case 'login': dbAction = 'USER_LOGIN'; break;
+        case 'resource_download': dbAction = 'RESOURCE_DOWNLOADED'; break;
+        case 'resource_view': dbAction = 'RESOURCE_VIEW'; break;
+        case 'resource_upload': dbAction = 'RESOURCE_CREATED'; break;
+        case 'resource_edit': dbAction = 'RESOURCE_UPDATED'; break;
+        default: dbAction = action;
+      }
       conditions.push('al.action = ?');
-      params.push(action);
+      params.push(dbAction);
     }
 
     if (user_id) {
@@ -180,26 +369,67 @@ const getActivityLogs = async (req, res) => {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Get activity logs
-    const [logs] = await pool.execute(
-      `SELECT al.*, u.name as user_name, u.email as user_email, u.role as user_role, 
-       r.title as resource_title
+    // Use the existing activity_logs table - much simpler and more reliable
+    // Map database actions to frontend expected activity types
+    const query = `SELECT 
+        al.log_id as activity_id,
+        al.user_id,
+        CASE 
+          WHEN al.action = 'USER_LOGIN' THEN 'login'
+          WHEN al.action = 'RESOURCE_DOWNLOADED' THEN 'resource_download'
+          WHEN al.action = 'RESOURCE_VIEW' THEN 'resource_view'
+          WHEN al.action = 'RESOURCE_CREATED' THEN 'resource_upload'
+          WHEN al.action = 'RESOURCE_UPDATED' THEN 'resource_edit'
+          WHEN al.action = 'ADMIN_CREATE_SCHOOL' THEN 'school_created'
+          ELSE 'other'
+        END as activity_type,
+        al.resource_id,
+        al.ip_address,
+        al.created_at as activity_time,
+        COALESCE(u.name, 'Unknown User') as user_name,
+        COALESCE(u.email, 'No email') as user_email,
+        COALESCE(u.role, 'unknown') as user_role,
+        COALESCE(u.organization, u.name, 'Unknown Organization') as school_name,
+        CASE 
+          WHEN al.action = 'USER_LOGIN' THEN NULL
+          WHEN al.action = 'ADMIN_CREATE_SCHOOL' THEN NULL
+          ELSE COALESCE(JSON_UNQUOTE(JSON_EXTRACT(al.details, '$.title')), r.title, 'No resource')
+        END as resource_title,
+        COALESCE(rt.type_name, 'Unknown') as resource_type,
+        COALESCE(s.subject_name, 'Unknown') as subject_name,
+        COALESCE(g.grade_level, 'Unknown') as grade_level,
+        al.details
        FROM activity_logs al
        LEFT JOIN users u ON al.user_id = u.user_id
        LEFT JOIN resources r ON al.resource_id = r.resource_id
+       LEFT JOIN resource_types rt ON r.type_id = rt.type_id
+       LEFT JOIN subjects s ON r.subject_id = s.subject_id
+       LEFT JOIN grades g ON r.grade_id = g.grade_id
        ${whereClause}
-       ORDER BY al.${sort} ${order}
-       LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit), offset]
-    );
+       ORDER BY al.created_at ${order}
+       LIMIT ? OFFSET ?`;
+
+    // Try using string concatenation for LIMIT/OFFSET to avoid parameter binding issues
+    const limitInt = parseInt(limit);
+    const offsetInt = parseInt(offset);
+    
+    const finalQuery = query.replace('LIMIT ? OFFSET ?', `LIMIT ${limitInt} OFFSET ${offsetInt}`);
+    console.log('🔍 [DEBUG] getActivityData final query:', finalQuery);
+    console.log('🔍 [DEBUG] getActivityData params (without LIMIT/OFFSET):', params);
+
+    const [logs] = await pool.execute(finalQuery, params);
 
     // Get total count
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM activity_logs al ${whereClause}`,
-      params
-    );
-
+    const countQuery = `SELECT COUNT(*) as total 
+      FROM activity_logs al
+      LEFT JOIN users u ON al.user_id = u.user_id
+      LEFT JOIN resources r ON al.resource_id = r.resource_id
+      ${whereClause}`;
+    
+    const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
+
+    console.log('🔍 [DEBUG] getActivityData success, logs count:', logs.length, 'total:', total);
 
     res.json({
       success: true,
@@ -214,263 +444,23 @@ const getActivityLogs = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get activity logs error:', error);
+    console.error('❌ [ERROR] Get activity data error:', error);
+    console.error('❌ [ERROR] Error details:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to get activity logs'
+      message: 'Failed to get activity data',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
 
-// Get comprehensive activity data from multiple sources
-const getActivityData = async (req, res) => {
-  try {
-    const { 
-      page = 1, 
-      limit = 20, 
-      action, 
-      user_id, 
-      start_date, 
-      end_date,
-      sort = 'activity_time',
-      order = 'DESC'
-    } = req.query;
-
-    const offset = (page - 1) * limit;
-    const conditions = [];
-    const params = [];
-
-    // Build WHERE conditions
-    if (action) {
-      conditions.push('activity_type = ?');
-      params.push(action);
-    }
-
-    if (user_id) {
-      conditions.push('user_id = ?');
-      params.push(user_id);
-    }
-
-    if (start_date) {
-      conditions.push('DATE(activity_time) >= ?');
-      params.push(start_date);
-    }
-
-    if (end_date) {
-      conditions.push('DATE(activity_time) <= ?');
-      params.push(end_date);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    // Get comprehensive activity data from multiple sources
-    const [logs] = await pool.execute(
-      `SELECT 
-        activity_id,
-        user_id,
-        activity_type as action,
-        resource_id,
-        ip_address,
-        activity_time as created_at,
-        user_name,
-        user_email,
-        user_role,
-        school_name,
-        resource_title,
-        resource_type,
-        subject_name,
-        grade_level,
-        details
-       FROM (
-         -- User login activities
-         SELECT 
-           CONCAT('login_', u.user_id, '_', u.last_login) as activity_id,
-           u.user_id,
-           'user_login' as activity_type,
-           NULL as resource_id,
-           u.last_ip as ip_address,
-           COALESCE(u.last_login, u.created_at) as activity_time,
-           u.name as user_name,
-           u.email as user_email,
-           u.role as user_role,
-           COALESCE(u.organization, u.name) as school_name,
-           NULL as resource_title,
-           NULL as resource_type,
-           NULL as subject_name,
-           NULL as grade_level,
-           JSON_OBJECT('login_method', 'web', 'user_agent', u.last_user_agent) as details
-         FROM users u
-         WHERE u.last_login IS NOT NULL OR u.created_at IS NOT NULL
-         
-         UNION ALL
-         
-         -- Resource download activities
-         SELECT 
-           CONCAT('download_', rd.download_id) as activity_id,
-           rd.user_id,
-           'resource_download' as activity_type,
-           rd.resource_id,
-           rd.ip_address,
-           rd.downloaded_at as activity_time,
-           u.name as user_name,
-           u.email as user_email,
-           u.role as user_role,
-           COALESCE(u.organization, u.name) as school_name,
-           r.title as resource_title,
-           rt.type_name as resource_type,
-           s.subject_name,
-           g.grade_level,
-           JSON_OBJECT('download_method', 'web', 'user_agent', rd.user_agent) as details
-         FROM resource_downloads rd
-         JOIN users u ON rd.user_id = u.user_id
-         JOIN resources r ON rd.resource_id = r.resource_id
-         JOIN resource_types rt ON r.type_id = rt.type_id
-         JOIN subjects s ON r.subject_id = s.subject_id
-         JOIN grades g ON r.grade_id = g.grade_id
-         
-         UNION ALL
-         
-         -- Resource view activities
-         SELECT 
-           CONCAT('view_', rv.view_id) as activity_id,
-           rv.user_id,
-           'resource_view' as activity_type,
-           rv.resource_id,
-           rv.ip_address,
-           rv.viewed_at as activity_time,
-           u.name as user_name,
-           u.email as user_email,
-           u.role as user_role,
-           COALESCE(u.organization, u.name) as school_name,
-           r.title as resource_title,
-           rt.type_name as resource_type,
-           s.subject_name,
-           g.grade_level,
-           JSON_OBJECT('view_method', 'web', 'user_agent', rv.user_agent) as details
-         FROM resource_views rv
-         JOIN users u ON rv.user_id = u.user_id
-         JOIN resources r ON rv.resource_id = r.resource_id
-         JOIN resource_types rt ON r.type_id = rt.type_id
-         JOIN subjects s ON r.subject_id = s.subject_id
-         JOIN grades g ON r.grade_id = g.grade_id
-         
-         UNION ALL
-         
-         -- Resource upload activities
-         SELECT 
-           CONCAT('upload_', r.resource_id) as activity_id,
-           r.created_by as user_id,
-           'resource_upload' as activity_type,
-           r.resource_id,
-           NULL as ip_address,
-           r.created_at as activity_time,
-           u.name as user_name,
-           u.email as user_email,
-           u.role as user_role,
-           COALESCE(u.organization, u.name) as school_name,
-           r.title as resource_title,
-           rt.type_name as resource_type,
-           s.subject_name,
-           g.grade_level,
-           JSON_OBJECT('file_size', r.file_size, 'file_extension', r.file_extension) as details
-         FROM resources r
-         JOIN users u ON r.created_by = u.user_id
-         JOIN resource_types rt ON r.type_id = rt.type_id
-         JOIN subjects s ON r.subject_id = s.subject_id
-         JOIN grades g ON r.grade_id = g.grade_id
-         
-         UNION ALL
-         
-         -- Activity logs (if any exist)
-         SELECT 
-           CONCAT('log_', al.log_id) as activity_id,
-           al.user_id,
-           al.action as activity_type,
-           al.resource_id,
-           al.ip_address,
-           al.created_at as activity_time,
-           u.name as user_name,
-           u.email as user_email,
-           u.role as user_role,
-           COALESCE(u.organization, u.name) as school_name,
-           r.title as resource_title,
-           rt.type_name as resource_type,
-           s.subject_name,
-           g.grade_level,
-           al.details
-         FROM activity_logs al
-         LEFT JOIN users u ON al.user_id = u.user_id
-         LEFT JOIN resources r ON al.resource_id = r.resource_id
-         LEFT JOIN resource_types rt ON r.type_id = rt.type_id
-         LEFT JOIN subjects s ON r.subject_id = s.subject_id
-         LEFT JOIN grades g ON r.grade_id = g.grade_id
-       ) as combined_activities
-       ${whereClause}
-       ORDER BY ${sort} ${order}
-       LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit), offset]
-    );
-
-    // Get total count
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM (
-         SELECT 
-           CONCAT('login_', u.user_id, '_', u.last_login) as activity_id
-         FROM users u
-         WHERE u.last_login IS NOT NULL OR u.created_at IS NOT NULL
-         
-         UNION ALL
-         
-         SELECT 
-           CONCAT('download_', rd.download_id) as activity_id
-         FROM resource_downloads rd
-         
-         UNION ALL
-         
-         SELECT 
-           CONCAT('view_', rv.view_id) as activity_id
-         FROM resource_views rv
-         
-         UNION ALL
-         
-         SELECT 
-           CONCAT('upload_', r.resource_id) as activity_id
-         FROM resources r
-         
-         UNION ALL
-         
-         SELECT 
-           CONCAT('log_', al.log_id) as activity_id
-         FROM activity_logs al
-       ) as combined_activities
-       ${whereClause}`,
-      params
-    );
-
-    const total = countResult[0].total;
-
-    res.json({
-      success: true,
-      data: {
-        logs,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Get activity data error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get activity data'
-    });
-  }
-};
-
-// Get school resource download activities from the new activity log table
+// Get school downloads - SIMPLIFIED VERSION
 const getSchoolDownloads = async (req, res) => {
   try {
     const { 
@@ -478,9 +468,7 @@ const getSchoolDownloads = async (req, res) => {
       limit = 20, 
       school_name, 
       start_date, 
-      end_date,
-      sort = 'activity_timestamp',
-      order = 'DESC'
+      end_date
     } = req.query;
 
     const offset = (page - 1) * limit;
@@ -505,7 +493,7 @@ const getSchoolDownloads = async (req, res) => {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Get school activities from the new activity log table
+    // Simple query
     const [activities] = await pool.execute(
       `SELECT 
         sal.id as log_id,
@@ -516,30 +504,22 @@ const getSchoolDownloads = async (req, res) => {
         sal.resource_type,
         sal.activity_type,
         sal.login_time,
-        sal.activity_timestamp as created_at,
+        sal.activity_timestamp,
         sal.ip_address,
         sal.user_agent,
         sal.file_size,
         sal.file_extension,
-        sal.created_at,
-        JSON_OBJECT(
-          'download_method', 'web',
-          'file_size_mb', CASE WHEN sal.file_size IS NOT NULL THEN ROUND(sal.file_size / 1048576, 2) ELSE NULL END,
-          'school_info', sal.school_organization,
-          'resource_details', CASE WHEN sal.resource_name IS NOT NULL THEN CONCAT(sal.resource_name, ' (', COALESCE(sal.resource_type, 'Unknown'), ')') ELSE 'Login Activity' END
-        ) as details
+        sal.created_at
        FROM school_activity_logs sal
        ${whereClause}
-       ORDER BY sal.${sort} ${order}
+       ORDER BY sal.activity_timestamp DESC
        LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), offset]
     );
 
     // Get total count
     const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total 
-       FROM school_activity_logs sal
-       ${whereClause}`,
+      `SELECT COUNT(*) as total FROM school_activity_logs sal ${whereClause}`,
       params
     );
 

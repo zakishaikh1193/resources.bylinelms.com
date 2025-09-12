@@ -87,3 +87,4 @@ SELECT COUNT(*) as total_resources FROM resources;
 SELECT COUNT(*) as total_downloads FROM resource_downloads;
 SELECT COUNT(*) as total_views FROM resource_views;
 SELECT COUNT(*) as total_activity_logs FROM activity_logs;
+

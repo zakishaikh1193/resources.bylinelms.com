@@ -16,7 +16,7 @@ import ProfileEditModal from './ProfileEditModal';
 import AdminViewModal from './AdminViewModal';
 import AdminEditModal from './AdminEditModal';
 import Sidebar from './Sidebar';
-import { API_ENDPOINTS, getFileUrl } from '../config/api';
+import { API_ENDPOINTS, getFileUrl, API_BASE_URL } from '../config/api';
 import ActivityLog from './ActivityLog';
 
 interface User {
@@ -502,12 +502,30 @@ const AdminDashboard: React.FC = () => {
         },
       });
 
-      const data = await response.json();
-      if (data.success) {
+      // Try to parse JSON safely
+      let data: any = null;
+      try { data = await response.json(); } catch (_) {}
+
+      if (response.ok && data && data.success) {
         console.log('Fetched resources with tags:', data.data.resources);
         setResources(data.data.resources || []);
       } else {
-        console.error('Failed to fetch resources:', data.message);
+        console.error('Failed to fetch resources:', (data && data.message) || response.statusText);
+
+        // Graceful fallback: use public resources endpoint to avoid blocking the UI
+        const fallbackUrl = `${API_ENDPOINTS.RESOURCES}?status=published&limit=1000`;
+        const fallbackRes = await fetch(fallbackUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          }
+        });
+        let fallbackData: any = null;
+        try { fallbackData = await fallbackRes.json(); } catch (_) {}
+        if (fallbackRes.ok && fallbackData && fallbackData.success) {
+          console.warn('Using fallback resources endpoint due to error from /resources/all');
+          setResources(fallbackData.data.resources || []);
+        }
       }
     } catch (error) {
       console.error('Error fetching resources:', error);
@@ -877,6 +895,59 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleDownloadResource = async (resource: any) => {
+    const downloadUrl = API_ENDPOINTS.RESOURCE_DOWNLOAD(resource.resource_id);
+    try {
+      console.log('Admin downloading resource:', resource.resource_id, resource.title);
+      setDownloadProgress({ isDownloading: true, progress: 0, fileName: resource.file_name, showSuccess: false });
+      
+      // Use fetch with proper authorization to trigger backend logging
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = resource.file_name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        setDownloadProgress(prev => ({ 
+          ...prev, 
+          progress: 100, 
+          isDownloading: false, 
+          showSuccess: true 
+        }));
+        
+        setTimeout(() => { 
+          setDownloadProgress(prev => ({ 
+            ...prev, 
+            showSuccess: false, 
+            progress: 0, 
+            fileName: '' 
+          })); 
+        }, 3000);
+        
+        console.log('Admin download completed successfully with logging');
+      } else {
+        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Admin download error:', error);
+      setDownloadProgress({ isDownloading: false, progress: 0, fileName: '', showSuccess: false });
+      alert('Failed to download resource. Please try again.');
+    }
+  };
+
   // Modal handlers
   const openGradeModal = (mode: 'create' | 'edit', grade?: any) => {
     setGradeModalMode(mode);
@@ -931,9 +1002,45 @@ const AdminDashboard: React.FC = () => {
   };
 
   const getPreviewImage = (resource: Resource) => {
+    console.log('Getting preview image for resource:', {
+      id: resource.resource_id,
+      title: resource.title,
+      preview_image: resource.preview_image,
+      file_name: resource.file_name
+    });
+    
+    // Prefer explicit preview image if present
     if (resource.preview_image) {
-      return getFileUrl(resource.preview_image);
+      // Normalize the path by replacing backslashes with forward slashes
+      const normalizedPath = resource.preview_image.replace(/\\/g, '/');
+      console.log('Normalized preview image path:', normalizedPath);
+      
+      // Try different URL construction approaches
+      let previewUrl = getFileUrl(normalizedPath);
+      console.log('Using preview image:', previewUrl);
+      
+      // If the path looks like it might need different handling, try alternatives
+      if (normalizedPath.includes('uploads/')) {
+        // If it already contains 'uploads/', use it directly
+        const baseUrl = API_BASE_URL.replace('/api', '');
+        previewUrl = `${baseUrl}/${normalizedPath}`;
+        console.log('Alternative preview URL:', previewUrl);
+      }
+      
+      return previewUrl;
     }
+    
+    // Fallback: if file_name looks like an image, use it
+    if (resource.file_name) {
+      const lower = resource.file_name.toLowerCase();
+      if (/(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg)$/.test(lower)) {
+        const fileUrl = getFileUrl(resource.file_name);
+        console.log('Using file_name as image:', fileUrl);
+        return fileUrl;
+      }
+    }
+    
+    console.log('Using default logo');
     return '/logo.png'; // Default logo
   };
 
@@ -1314,7 +1421,8 @@ const AdminDashboard: React.FC = () => {
                       {/* Resources in this grade */}
                       <div className="space-y-2">
                         {gradeResources.map((resource) => {
-                          const IconComponent = getFileIcon(resource.type_name);
+                          const typeName = resourceTypes.find(t => t.type_id === resource.type_id)?.type_name || 'Unknown';
+                          const IconComponent = getFileIcon(typeName);
                           
                           return (
                             <div 
@@ -1328,8 +1436,9 @@ const AdminDashboard: React.FC = () => {
                                   alt={resource.title}
                                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                   onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
+                                    const target = e.currentTarget as HTMLImageElement;
+                                    target.onerror = null;
+                                    target.src = '/logo.png';
                                   }}
                                 />
                               </div>
@@ -1357,7 +1466,7 @@ const AdminDashboard: React.FC = () => {
                                   <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded-full">
                                     {resource.subject_name}
                                   </span>
-                                  <span className="text-xs text-gray-500">{resource.type_name}</span>
+                                  <span className="text-xs text-gray-500">{typeName}</span>
                                 </div>
 
                                 {/* Action Button */}
@@ -1377,7 +1486,7 @@ const AdminDashboard: React.FC = () => {
                   );
                 })}
               </div>
-            </div>
+            </div>   
           </div>
         )}
 
@@ -2325,8 +2434,8 @@ const AdminDashboard: React.FC = () => {
         onClose={() => setShowResourceViewModal(false)}
         resource={selectedResource}
         onDownload={(resource) => {
-          // Handle download for admin view
-          window.open(`${API_ENDPOINTS.RESOURCE_DOWNLOAD(resource.resource_id)}`, '_blank');
+          // Handle download for admin view with proper logging
+          handleDownloadResource(resource);
         }}
         getSubjectName={(subjectId) => {
           const subject = subjects.find(s => s.subject_id === subjectId);

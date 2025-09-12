@@ -79,3 +79,4 @@ JOIN subjects s ON r.subject_id = s.subject_id
 JOIN grades g ON r.grade_id = g.grade_id
 ORDER BY rd.downloaded_at DESC
 LIMIT 5;
+
