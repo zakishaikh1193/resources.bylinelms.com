@@ -84,11 +84,6 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   console.log('Resource type:', resource.type, 'Available types:', Object.keys(typeIcons));
   const TypeIcon = typeIcons[resource.type] || FileText; // Fallback to FileText if type not found
   
-  const handleDownload = () => {
-    // TODO: Implement actual download functionality
-    console.log('Downloading resource:', resource.id);
-    // This would typically trigger a download from the backend
-  };
 
   const handleDragStart = (e: React.DragEvent) => {
     if (isDraggable && onDragStart) {
@@ -137,6 +132,15 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
             src={resource.previewImage} 
             alt={resource.title}
             className="w-full h-52 object-cover group-hover:scale-110 transition-transform duration-500"
+            onError={(e) => {
+              const target = e.currentTarget as HTMLImageElement;
+              target.onerror = null;
+              console.log('ResourceCard image failed to load, trying fallback:', target.src);
+              target.src = '/logo.png';
+            }}
+            onLoad={() => {
+              console.log('ResourceCard image loaded successfully:', resource.title);
+            }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           
@@ -160,6 +164,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                   onEdit?.(resource);
                 }}
                 className="p-2 bg-white/90 hover:bg-white text-blue-600 hover:text-blue-700 rounded-xl shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110"
+                title="Edit Resource"
               >
                 <Edit size={16} />
               </button>
@@ -169,6 +174,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                   onDelete?.(resource.id);
                 }}
                 className="p-2 bg-white/90 hover:bg-white text-red-600 hover:text-red-700 rounded-xl shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110"
+                title="Delete Resource"
               >
                 <Trash2 size={16} />
               </button>

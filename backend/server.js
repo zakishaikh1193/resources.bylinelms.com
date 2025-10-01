@@ -27,14 +27,14 @@ app.use(cors({
 
 // Increase buffer sizes for large uploads
 app.use(express.json({ 
-  limit: '100mb',
+  limit: '500mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 }));
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '100mb',
+  limit: '500mb',
   parameterLimit: 100000
 }));
 
@@ -113,8 +113,8 @@ const startServer = async () => {
 
     // Optimize server for large uploads
     server.maxConnections = 1000;
-    server.keepAliveTimeout = 65000;
-    server.headersTimeout = 66000;
+    server.keepAliveTimeout = 300000; // 5 minutes for large uploads
+    server.headersTimeout = 310000; // 5 minutes + 10 seconds
     
   } catch (error) {
     console.error('Failed to start server:', error);

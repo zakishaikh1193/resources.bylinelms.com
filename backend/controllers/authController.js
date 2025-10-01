@@ -109,15 +109,39 @@ const login = async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { userId: user.user_id },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'your_super_secret_jwt_key_here_2024_byline_learning_solutions',
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
-    // Log activity
+    // Log activity to activity_logs table
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
       [user.user_id, 'USER_LOGIN', JSON.stringify({ email, role: user.role }), req.ip]
     );
+
+    // If it's a school user, also log to school_activity_logs table
+    if (user.role === 'school') {
+      try {
+        await pool.execute(
+          `INSERT INTO school_activity_logs (
+            school_name, school_email, school_organization, 
+            activity_type, login_time, ip_address, user_agent
+          ) VALUES (?, ?, ?, ?, NOW(), ?, ?)`,
+          [
+            user.name,
+            user.email,
+            user.organization || user.name,
+            'login',
+            req.ip,
+            req.headers['user-agent'] || 'Unknown'
+          ]
+        );
+        console.log(`School login logged to school_activity_logs: ${email}`);
+      } catch (logError) {
+        console.error('Failed to log school login to school_activity_logs:', logError.message);
+        // Don't fail the login if logging fails
+      }
+    }
 
     // Remove password from response
     delete user.password;

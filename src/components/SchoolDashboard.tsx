@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { API_ENDPOINTS, getFileUrl } from '../config/api';
+import { API_ENDPOINTS, getFileUrl, API_BASE_URL } from '../config/api';
 import { useAuth } from '../contexts/AuthContext';
 import ResourceViewModal from './ResourceViewModal';
 import { 
@@ -269,6 +269,9 @@ const SchoolDashboard: React.FC = () => {
     type_name: string;
   }>>([]);
   
+  // Session tracking state - tracks viewed resources in current session
+  const [viewedResourcesInSession, setViewedResourcesInSession] = useState<Set<number>>(new Set());
+  
   // Download progress state
   const [downloadProgress, setDownloadProgress] = useState<{
     isDownloading: boolean;
@@ -310,9 +313,18 @@ const SchoolDashboard: React.FC = () => {
     if (token) {
       fetchResources();
       fetchMetadata();
-      loadDownloadHistory();
     }
   }, [token]);
+
+  // Load download history when user changes
+  useEffect(() => {
+    if (user?.user_id) {
+      loadDownloadHistory();
+    } else {
+      // Clear download history if no user
+      setDownloadHistory([]);
+    }
+  }, [user?.user_id]);
 
   // Apply filters and search
   useEffect(() => {
@@ -321,7 +333,7 @@ const SchoolDashboard: React.FC = () => {
 
   const fetchResources = async () => {
     try {
-      const response = await fetch(`${API_ENDPOINTS.RESOURCES}?limit=1000`, {
+      const response = await fetch(`${API_ENDPOINTS.RESOURCES}?limit=1000&status=published&sort=created_at&order=DESC`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -331,7 +343,11 @@ const SchoolDashboard: React.FC = () => {
       const data = await response.json();
       if (data.success) {
         const resourcesWithTags = data.data.resources || [];
-        setResources(resourcesWithTags);
+        // Sort by creation date descending (newest first) and filter only published
+        const sortedResources = resourcesWithTags
+          .filter(resource => resource.status === 'published')
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        setResources(sortedResources);
       } else {
         console.error('Failed to fetch resources:', data.message);
       }
@@ -401,10 +417,13 @@ const SchoolDashboard: React.FC = () => {
     setSearchTerm('');
   };
 
-  // Load download history from localStorage
+  // Load download history from localStorage (user-specific)
   const loadDownloadHistory = () => {
     try {
-      const savedHistory = localStorage.getItem('downloadHistory');
+      if (!user?.user_id) return; // Don't load if no user
+      
+      const userSpecificKey = `downloadHistory_${user.user_id}`;
+      const savedHistory = localStorage.getItem(userSpecificKey);
       if (savedHistory) {
         setDownloadHistory(JSON.parse(savedHistory));
       }
@@ -413,10 +432,13 @@ const SchoolDashboard: React.FC = () => {
     }
   };
 
-  // Save download history to localStorage
+  // Save download history to localStorage (user-specific)
   const saveDownloadHistory = (history: typeof downloadHistory) => {
     try {
-      localStorage.setItem('downloadHistory', JSON.stringify(history));
+      if (!user?.user_id) return; // Don't save if no user
+      
+      const userSpecificKey = `downloadHistory_${user.user_id}`;
+      localStorage.setItem(userSpecificKey, JSON.stringify(history));
     } catch (error) {
       console.error('Error saving download history:', error);
     }
@@ -475,6 +497,9 @@ const SchoolDashboard: React.FC = () => {
     try {
       console.log('Starting download for resource:', resource.resource_id, resource.file_name);
       
+      // Remove view log if this resource was viewed in current session
+      await removeViewLogIfDownloaded(resource.resource_id);
+      
       // Start download progress
       setDownloadProgress({
         isDownloading: true,
@@ -485,15 +510,65 @@ const SchoolDashboard: React.FC = () => {
 
       console.log('Download URL:', downloadUrl);
       
-      // Method 1: Try using window.open with proper headers
+      // Method 1: Use fetch with proper authorization to trigger backend logging
       try {
-        // Create a hidden iframe to handle the download
+        const response = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          // Get the blob from the response
+          const blob = await response.blob();
+          
+          // Create a download link
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = resource.file_name;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+          
+          // Complete download progress
+          setDownloadProgress(prev => ({
+            ...prev,
+            progress: 100,
+            isDownloading: false,
+            showSuccess: true
+          }));
+          
+          // Add to download history
+          addToDownloadHistory(resource);
+          
+          // Hide success message after 3 seconds
+          setTimeout(() => {
+            setDownloadProgress(prev => ({
+              ...prev,
+              showSuccess: false,
+              progress: 0,
+              fileName: ''
+            }));
+          }, 3000);
+          
+          console.log('Download completed successfully with proper logging');
+        } else {
+          throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+        }
+        
+      } catch (fetchError) {
+        console.warn('Fetch download failed, trying iframe method:', fetchError);
+        
+        // Method 2: Fallback to iframe with authorization
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
-        iframe.src = downloadUrl;
         
-                 // Add authorization header via URL parameter (server should handle this)
-         const urlWithAuth = `${downloadUrl}?token=${encodeURIComponent(token || '')}`;
+        // Add authorization header via URL parameter
+        const urlWithAuth = `${downloadUrl}?token=${encodeURIComponent(token || '')}`;
         iframe.src = urlWithAuth;
         
         document.body.appendChild(iframe);
@@ -535,59 +610,6 @@ const SchoolDashboard: React.FC = () => {
             }));
           }, 3000);
         }, 2000);
-        
-      } catch (iframeError) {
-        console.warn('Iframe download failed, trying direct link:', iframeError);
-        
-        // Method 2: Direct link approach
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = resource.file_name;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        
-                 // Add authorization header via custom attribute
-         link.setAttribute('data-auth', `Bearer ${token || ''}`);
-        
-        // Simulate progress
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-          progress += Math.random() * 20;
-          if (progress > 90) progress = 90;
-          setDownloadProgress(prev => ({
-            ...prev,
-            progress: Math.round(progress)
-          }));
-        }, 300);
-        
-        // Trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Complete after a delay
-        setTimeout(() => {
-          clearInterval(progressInterval);
-          setDownloadProgress(prev => ({
-            ...prev,
-            progress: 100,
-            isDownloading: false,
-            showSuccess: true
-          }));
-          
-          // Add to download history
-          addToDownloadHistory(resource);
-          
-          // Hide success message after 3 seconds
-          setTimeout(() => {
-            setDownloadProgress(prev => ({
-              ...prev,
-              showSuccess: false,
-              progress: 0,
-              fileName: ''
-            }));
-          }, 3000);
-        }, 1500);
       }
 
     } catch (error) {
@@ -597,8 +619,9 @@ const SchoolDashboard: React.FC = () => {
       try {
         console.log('Trying final fallback method - window.open');
         
-        // Open in new window/tab
-        const newWindow = window.open(downloadUrl, '_blank');
+        // Add authorization via URL parameter
+        const urlWithAuth = `${downloadUrl}?token=${encodeURIComponent(token || '')}`;
+        const newWindow = window.open(urlWithAuth, '_blank');
         
         if (newWindow) {
           // Simulate progress
@@ -655,7 +678,30 @@ const SchoolDashboard: React.FC = () => {
     }
   };
 
-  const handleViewResource = (resource: Resource) => {
+  const handleViewResource = async (resource: Resource) => {
+    // Add resource to viewed resources in current session
+    setViewedResourcesInSession(prev => new Set(prev).add(resource.resource_id));
+    
+    // Track the resource view (this will be logged to activity log)
+    try {
+      const response = await fetch(API_ENDPOINTS.RESOURCE_VIEW(resource.resource_id), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        console.log('✅ Resource view tracked successfully');
+      } else {
+        console.warn('⚠️ Failed to track resource view:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ Error tracking resource view:', error);
+    }
+
+    // Open the view modal
     setSelectedResource(resource);
     setIsViewModalOpen(true);
   };
@@ -665,11 +711,76 @@ const SchoolDashboard: React.FC = () => {
     setSelectedResource(null);
   };
 
-  const getPreviewImage = (resource: Resource) => {
-    if (resource.preview_image) {
-      return getFileUrl(resource.preview_image);
+  // Function to remove view log if download occurs in same session
+  const removeViewLogIfDownloaded = async (resourceId: number) => {
+    try {
+      // Check if this resource was viewed in current session
+      if (viewedResourcesInSession.has(resourceId)) {
+        console.log(`🔄 Removing view log for resource ${resourceId} since it was downloaded in same session`);
+        
+        // Call backend to remove the most recent view log for this resource
+        const response = await fetch(`${API_ENDPOINTS.RESOURCE_VIEW(resourceId)}/remove-latest`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          console.log('✅ View log removed successfully');
+          // Remove from session tracking
+          setViewedResourcesInSession(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(resourceId);
+            return newSet;
+          });
+        } else {
+          console.warn('⚠️ Failed to remove view log:', response.status);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error removing view log:', error);
     }
-    return '/logo.png';
+  };
+
+  const getPreviewImage = (resource: Resource) => {
+    console.log('Getting preview image for resource:', {
+      id: resource.resource_id,
+      title: resource.title,
+      preview_image: resource.preview_image,
+      file_name: resource.file_name
+    });
+    
+    // Prefer explicit preview image if present
+    if (resource.preview_image) {
+      // Try different URL construction approaches
+      let previewUrl = getFileUrl(resource.preview_image);
+      console.log('Using preview image:', previewUrl);
+      
+      // If the path looks like it might need different handling, try alternatives
+      if (resource.preview_image.includes('uploads/')) {
+        // If it already contains 'uploads/', use it directly
+        const baseUrl = API_BASE_URL.replace('/api', '');
+        previewUrl = `${baseUrl}/${resource.preview_image}`;
+        console.log('Alternative preview URL:', previewUrl);
+      }
+      
+      return previewUrl;
+    }
+    
+    // Fallback: if file_name looks like an image, use it
+    if (resource.file_name) {
+      const lower = resource.file_name.toLowerCase();
+      if (/(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg)$/.test(lower)) {
+        const fileUrl = getFileUrl(resource.file_name);
+        console.log('Using file_name as image:', fileUrl);
+        return fileUrl;
+      }
+    }
+    
+    console.log('Using default logo');
+    return '/logo.png'; // Default logo
   };
 
   const getSubjectName = (subjectId: number) => {
@@ -684,9 +795,18 @@ const SchoolDashboard: React.FC = () => {
     return availableTypes.find(t => t.type_id === typeId)?.type_name || 'Unknown';
   };
 
-  // Get resources for a specific grade
+  // Get resources for a specific grade (sorted by newest first)
   const getResourcesForGrade = (gradeId: number) => {
-    return filteredResources.filter(resource => resource.grade_id === gradeId);
+    return filteredResources
+      .filter(resource => resource.grade_id === gradeId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
+  // Get the most recent resources across all grades
+  const getRecentResources = (limit: number = 12) => {
+    return filteredResources
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, limit);
   };
 
   // Scroll Kanban board
@@ -898,6 +1018,7 @@ const SchoolDashboard: React.FC = () => {
                  {/* Mini Kanban for Recent Resources */}
                  <div className="flex space-x-6 overflow-x-auto pb-4 kanban-scroll">
                    {availableGrades.slice(0, 4).map((grade) => {
+                     // Get the most recent resources for this grade (newest first)
                      const gradeResources = getResourcesForGrade(grade.grade_id).slice(0, 3);
                      const gradeColor = getGradeColor(grade.grade_id);
                      
@@ -936,8 +1057,9 @@ const SchoolDashboard: React.FC = () => {
                                      alt={resource.title}
                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                      onError={(e) => {
-                                       const target = e.target as HTMLImageElement;
-                                       target.style.display = 'none';
+                                       const target = e.currentTarget as HTMLImageElement;
+                                       target.onerror = null;
+                                       target.src = '/logo.png';
                                      }}
                                    />
                                  </div>
@@ -1090,11 +1212,12 @@ const SchoolDashboard: React.FC = () => {
                       }}
                     >
                      {availableGrades.map((grade) => {
+                       // Get resources for this grade, sorted by newest first
                        const gradeResources = getResourcesForGrade(grade.grade_id);
                        const gradeColor = getGradeColor(grade.grade_id);
                        
                        return (
-                                                   <div key={grade.grade_id} className="flex-shrink-0 w-80">
+                                                   <div key={grade.grade_id} className="flex-shrink-0 w-72">
                           {/* Grade Column Header */}
                           <div className={`${gradeColor.bg} ${gradeColor.border} rounded-t-xl p-4 mb-4`}>
                             <div className="flex items-center justify-between">
@@ -1122,14 +1245,15 @@ const SchoolDashboard: React.FC = () => {
                                   
 
                                   {/* Thumbnail Image */}
-                                  <div className="aspect-square bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-hidden">
+                                  <div className="aspect-video bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-hidden">
                                     <img
                                       src={getPreviewImage(resource)}
                                       alt={resource.title}
                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                       onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
-                                        target.style.display = 'none';
+                                        const target = e.currentTarget as HTMLImageElement;
+                                        target.onerror = null;
+                                        target.src = '/logo.png';
                                       }}
                                     />
                                   </div>
@@ -1142,50 +1266,32 @@ const SchoolDashboard: React.FC = () => {
                                      </h4>
                                      
                                      {/* Description */}
-                                     <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed mb-2">
-                                       {resource.description}
+                                     <p className="text-xs text-gray-600 line-clamp-1 leading-relaxed mb-2">
+                                       {(() => {
+                                         // Strip HTML tags and get plain text
+                                         const plainText = resource.description.replace(/<[^>]*>/g, '');
+                                         // Take first 20 letters
+                                         const firstTwentyLetters = plainText.trim().substring(0, 20);
+                                         return firstTwentyLetters + (plainText.trim().length > 20 ? '...' : '');
+                                       })()}
                                      </p>
 
-                                                                                                               {/* Tags */}
-                                      {resource.tags && resource.tags.length > 0 && (
-                                        <div className="mb-2">
-                                         <div className="flex flex-wrap gap-1">
-                                           {resource.tags.slice(0, 3).map(tag => (
-                                             <span
-                                               key={tag.tag_id}
-                                               className={`px-2 py-1 text-xs font-medium rounded-full border ${getTagColor(tag.tag_id)}`}
-                                             >
-                                               {tag.tag_name}
-                                             </span>
-                                           ))}
-                                         </div>
-                                       </div>
-                                     )}
-
-                                                                         {/* Author and Date */}
-                                     <div className="flex items-center justify-between mb-2">
-                                      <div className="flex items-center space-x-2">
-                                        <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                                          {resource.created_by.toString().slice(0, 1)}
-                                        </div>
-                                        <div>
-                                          <p className="text-xs font-medium text-gray-900">Admin</p>
-                                          <p className="text-xs text-gray-500">{formatDate(resource.created_at)}</p>
-                                        </div>
-                                      </div>
-                                      <div className="text-right">
-                                        <p className="text-xs font-medium text-gray-700">{getSubjectName(resource.subject_id)}</p>
-                                      </div>
-                                    </div>
+                                   {/* Subject and Type */}
+                                   <div className="flex items-center justify-between mb-2">
+                                     <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded-full">
+                                       {getSubjectName(resource.subject_id)}
+                                     </span>
+                                     <span className="text-xs text-gray-500">{typeName}</span>
+                                   </div>
 
                                                                          {/* Action Button */}
-                                     <button
-                                       onClick={() => handleViewResource(resource)}
-                                       className="w-full flex items-center justify-center space-x-2 px-2 py-1.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02] text-xs"
-                                     >
-                                      <Eye className="w-3 h-3" />
-                                      <span>View Details</span>
-                                    </button>
+                                   <button
+                                     onClick={() => handleViewResource(resource)}
+                                     className="w-full flex items-center justify-center space-x-1 px-2 py-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-md hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02] text-xs"
+                                   >
+                                     <Eye className="w-3 h-3" />
+                                     <span>View</span>
+                                   </button>
                                   </div>
                                 </div>
                               );
@@ -1234,7 +1340,10 @@ const SchoolDashboard: React.FC = () => {
                    <button
                      onClick={() => {
                        setDownloadHistory([]);
-                       localStorage.removeItem('downloadHistory');
+                       if (user?.user_id) {
+                         const userSpecificKey = `downloadHistory_${user.user_id}`;
+                         localStorage.removeItem(userSpecificKey);
+                       }
                      }}
                      className="px-4 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                    >

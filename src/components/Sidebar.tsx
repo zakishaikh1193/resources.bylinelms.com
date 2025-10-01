@@ -19,8 +19,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
-  activeTab: 'overview' | 'users' | 'content' | 'metadata' | 'settings';
-  onTabChange: (tab: 'overview' | 'users' | 'content' | 'metadata' | 'settings') => void;
+  activeTab: 'overview' | 'users' | 'content' | 'metadata' | 'settings' | 'activity';
+  onTabChange: (tab: 'overview' | 'users' | 'content' | 'metadata' | 'settings' | 'activity') => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -35,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navigationItems: Array<{
-    id: 'overview' | 'users' | 'content' | 'metadata' | 'settings';
+    id: 'overview' | 'users' | 'content' | 'metadata' | 'settings' | 'activity';
     label: string;
     icon: any;
     description: string;
@@ -65,6 +65,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       description: 'Create and manage educational resources'
     },
     {
+      id: 'activity',
+      label: 'Activity Log',
+      icon: FileText,
+      description: 'Monitor user activities and downloads'
+    },
+    {
       id: 'settings',
       label: 'Settings',
       icon: Settings,
@@ -72,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
-  const handleTabClick = (tabId: 'overview' | 'users' | 'content' | 'metadata' | 'settings') => {
+  const handleTabClick = (tabId: 'overview' | 'users' | 'content' | 'metadata' | 'settings' | 'activity') => {
     onTabChange(tabId);
     setIsMobileMenuOpen(false);
   };
