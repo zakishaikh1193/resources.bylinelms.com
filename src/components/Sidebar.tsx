@@ -112,7 +112,7 @@ const Sidebar: React.FC<SidebarProps> = ({
            <div className="flex items-center justify-center">
              {!isCollapsed && (
                <div className="text-center">
-                 <h1 className="text-2xl font-bold text-white tracking-wide">Byline Resource Sharing</h1>
+                 <h1 className="text-2xl font-bold text-white tracking-wide">Kodeit Resource Sharing</h1>
                  <p className="text-blue-100 text-sm mt-1 font-medium">Admin Dashboard</p>
                </div>
              )}

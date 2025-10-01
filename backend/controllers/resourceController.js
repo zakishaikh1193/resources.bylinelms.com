@@ -250,10 +250,21 @@ const getResources = async (req, res) => {
 
     // Test with simplest possible query first
     console.log('Executing query with status:', status);
-    const [resources] = await pool.execute(
-      `SELECT * FROM resources WHERE status = ?`,
-      [status]
-    );
+    
+    let query, queryParams;
+    
+    // For school users, restrict to permitted subject-grade combinations
+    if (req.user?.role === 'school') {
+      query = `SELECT r.* FROM resources r
+               JOIN school_subject_permissions p ON p.school_id = ? AND p.subject_id = r.subject_id AND p.grade_id = r.grade_id
+               WHERE r.status = ?`;
+      queryParams = [req.user.user_id, status];
+    } else {
+      query = `SELECT * FROM resources WHERE status = ?`;
+      queryParams = [status];
+    }
+    
+    const [resources] = await pool.execute(query, queryParams);
     console.log('Query executed successfully, found resources:', resources.length);
 
     // If no resources found, return empty result
@@ -294,10 +305,19 @@ const getResources = async (req, res) => {
     );
 
     // Get total count
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM resources WHERE status = ?`,
-      [status]
-    );
+    let countQuery, countParams;
+    
+    if (req.user?.role === 'school') {
+      countQuery = `SELECT COUNT(*) as total FROM resources r
+                    JOIN school_subject_permissions p ON p.school_id = ? AND p.subject_id = r.subject_id AND p.grade_id = r.grade_id
+                    WHERE r.status = ?`;
+      countParams = [req.user.user_id, status];
+    } else {
+      countQuery = `SELECT COUNT(*) as total FROM resources WHERE status = ?`;
+      countParams = [status];
+    }
+    
+    const [countResult] = await pool.execute(countQuery, countParams);
 
     const total = countResult[0].total;
 
@@ -483,6 +503,21 @@ const getResourceById = async (req, res) => {
     }
 
     const resource = resources[0];
+
+    // For school users, check if they have permission to access this resource
+    if (req.user?.role === 'school') {
+      const [permissions] = await pool.execute(
+        'SELECT 1 FROM school_subject_permissions WHERE school_id = ? AND subject_id = ? AND grade_id = ?',
+        [req.user.user_id, resource.subject_id, resource.grade_id]
+      );
+
+      if (permissions.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: You do not have permission to view this resource'
+        });
+      }
+    }
 
     // Get tags
     const [tags] = await pool.execute(
@@ -732,9 +767,9 @@ const downloadResource = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Get resource
+    // Get resource with subject and grade info for permission check
     const [resources] = await pool.execute(
-      'SELECT file_path, file_name, title FROM resources WHERE resource_id = ?',
+      'SELECT file_path, file_name, title, subject_id, grade_id FROM resources WHERE resource_id = ?',
       [id]
     );
 
@@ -746,6 +781,21 @@ const downloadResource = async (req, res) => {
     }
 
     const resource = resources[0];
+
+    // For school users, check if they have permission to download this resource
+    if (req.user?.role === 'school') {
+      const [permissions] = await pool.execute(
+        'SELECT 1 FROM school_subject_permissions WHERE school_id = ? AND subject_id = ? AND grade_id = ?',
+        [req.user.user_id, resource.subject_id, resource.grade_id]
+      );
+
+      if (permissions.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: You do not have permission to download this resource'
+        });
+      }
+    }
 
     // Check if file exists
     try {

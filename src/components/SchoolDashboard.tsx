@@ -762,11 +762,11 @@ const SchoolDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 flex items-center justify-center">
-                  <img src="/logo.png" alt="Byline Learning Solutions" className="w-full h-full object-contain" />
+                  <img src="/logo.png" alt="Kodeit Resource Sharing" className="w-full h-full object-contain" />
                 </div>
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Byline Learning Solutions</h1>
-                  <p className="text-sm sm:text-base text-gray-600">Byline Resource Sharing</p>
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Kodeit Resource Sharing</h1>
+                  <p className="text-sm sm:text-base text-gray-600">Kodeit Resource Sharing</p>
                 </div>
               </div>
 
