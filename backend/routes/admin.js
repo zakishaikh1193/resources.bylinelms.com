@@ -11,6 +11,8 @@ router.use(verifyToken, requireAdmin);
 router.get('/dashboard', adminController.getDashboardStats);
 router.get('/stats/system', adminController.getSystemStats);
 router.get('/activity/summary', adminController.getAdminActivitySummary);
+router.get('/activity/data', validatePagination, adminController.getActivityData);
+router.get('/activity/school-downloads', validatePagination, adminController.getSchoolDownloads);
 router.get('/activity/logs', validatePagination, adminController.getActivityLogs);
 
 module.exports = router;

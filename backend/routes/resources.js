@@ -16,8 +16,10 @@ router.get('/', optionalAuth, validatePagination, validateSearch, resourceContro
 router.get('/all', verifyToken, validatePagination, validateSearch, resourceController.getAllResources);
 router.get('/popular', optionalAuth, resourceController.getPopularResources);
 router.get('/debug/upload-config', resourceController.debugUploadConfig);
-router.get('/:id', optionalAuth, validateResourceId, resourceController.getResourceById);
+router.post('/:id/view', optionalAuth, validateResourceId, resourceController.trackResourceView);
+router.delete('/:id/view/remove-latest', optionalAuth, validateResourceId, resourceController.removeLatestViewLog);
 router.get('/:id/download', optionalAuth, validateResourceId, resourceController.downloadResource);
+router.get('/:id', optionalAuth, validateResourceId, resourceController.getResourceById);
 
 // Protected routes - Only admin can modify resources
 router.post('/', verifyToken, requireAdmin, uploadMultiple, handleUploadError, validateResourceCreation, resourceController.createResource);

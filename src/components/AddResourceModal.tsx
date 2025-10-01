@@ -288,7 +288,7 @@ export const AddResourceModal: React.FC<AddResourceModalProps> = ({
       
       if (formData.tags.length > 0) {
         formData.tags.forEach(tagId => {
-          submitData.append('tags[]', tagId.toString());
+          submitData.append('tags', tagId.toString());
         });
       }
 
