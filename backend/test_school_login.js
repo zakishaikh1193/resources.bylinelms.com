@@ -121,7 +121,7 @@ async function testSchoolLogin() {
       if (apiLogs.length > 0) {
         console.log('Sample API response record:');
         const log = apiLogs[0];
-        console.log({
+        console.log({    
           log_id: log.log_id,
           school_name: log.school_name,
           activity_type: log.activity_type,

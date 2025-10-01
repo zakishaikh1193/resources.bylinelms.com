@@ -177,9 +177,9 @@ export const AddResourceModal: React.FC<AddResourceModalProps> = ({
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Validate file size (5GB limit)
-      if (file.size > 5 * 1024 * 1024 * 1024) {
-        setFileError('File size must be less than 5GB');
+      // Validate file size (100MB limit)
+      if (file.size > 100 * 1024 * 1024 * 1024) {
+        setFileError('File size must be less than 1000MB');
         return;
       }
 
