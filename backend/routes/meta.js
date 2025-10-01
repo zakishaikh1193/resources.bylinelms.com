@@ -469,6 +469,34 @@ router.delete('/tags/:id', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+// Get subjects with grades (convenience endpoint for admin UI)
+router.get('/subjects-with-grades', async (req, res) => {
+  try {
+    // Get all subjects
+    const [subjects] = await pool.execute(
+      'SELECT * FROM subjects ORDER BY subject_name'
+    );
+
+    // Get all grades
+    const [grades] = await pool.execute(
+      'SELECT * FROM grades ORDER BY grade_number'
+    );
+
+    res.json({
+      success: true,
+      data: {
+        subjects,
+        grades
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get subjects with grades'
+    });
+  }
+});
+
 // Get statistics
 router.get('/stats', async (req, res) => {
   try {

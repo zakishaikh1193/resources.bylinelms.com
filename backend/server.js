@@ -11,6 +11,7 @@ const authRoutes = require('./routes/auth');
 const resourceRoutes = require('./routes/resources');
 const metaRoutes = require('./routes/meta');
 const adminRoutes = require('./routes/admin');
+const schoolPermissionsRoutes = require('./routes/schoolPermissions');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -74,6 +75,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/resources', resourceRoutes);
 app.use('/api/meta', metaRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/schools', schoolPermissionsRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

@@ -31,8 +31,13 @@ export const API_ENDPOINTS = {
   // Metadata endpoints
   GRADES: `${API_BASE_URL}/meta/grades`,
   SUBJECTS: `${API_BASE_URL}/meta/subjects`,
+  SUBJECTS_WITH_GRADES: `${API_BASE_URL}/meta/subjects-with-grades`,
   RESOURCE_TYPES: `${API_BASE_URL}/meta/resource-types`,
   TAGS: `${API_BASE_URL}/meta/tags`,
+  
+  // School permissions endpoints
+  SCHOOLS: `${API_BASE_URL}/admin/schools`,
+  SCHOOL_PERMISSIONS: (schoolId: number) => `${API_BASE_URL}/admin/schools/${schoolId}/permissions`,
   
   // File uploads
   UPLOAD_RESOURCE: `${API_BASE_URL}/resources`,

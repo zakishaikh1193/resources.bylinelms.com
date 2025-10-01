@@ -15,6 +15,7 @@ import SchoolEditModal from './SchoolEditModal';
 import ProfileEditModal from './ProfileEditModal';
 import AdminViewModal from './AdminViewModal';
 import AdminEditModal from './AdminEditModal';
+import SchoolPermissionsModal from './SchoolPermissionsModal';
 import Sidebar from './Sidebar';
 import { API_ENDPOINTS, getFileUrl } from '../config/api';
 
@@ -101,6 +102,7 @@ const AdminDashboard: React.FC = () => {
   const [showAdminEditModal, setShowAdminEditModal] = useState(false);
   const [showProfileEditModal, setShowProfileEditModal] = useState(false);
   const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
+  const [showSchoolPermissionsModal, setShowSchoolPermissionsModal] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
@@ -314,6 +316,11 @@ const AdminDashboard: React.FC = () => {
   const handleEditSchool = (school: User) => {
     setSelectedSchool(school);
     setShowSchoolEditModal(true);
+  };
+
+  const handleManagePermissions = (school: User) => {
+    setSelectedSchool(school);
+    setShowSchoolPermissionsModal(true);
   };
 
   const handleDeleteSchool = async (school: User) => {
@@ -1131,7 +1138,7 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 flex items-center justify-center">
-                  <img src="/logo.png" alt="Byline Learning Solutions" className="w-full h-full object-contain" />
+                  <img src="/logo.png" alt="Kodeit Resource Sharing" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
@@ -1517,6 +1524,13 @@ const AdminDashboard: React.FC = () => {
                               title="Edit School"
                             >
                               <Edit className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleManagePermissions(user)}
+                              className="text-purple-600 hover:text-purple-900 transition-colors"
+                              title="Manage Permissions"
+                            >
+                              <Shield className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => handleDeleteSchool(user)}
@@ -2408,6 +2422,20 @@ const AdminDashboard: React.FC = () => {
         isOpen={showCreateAdminModal}
         onClose={() => setShowCreateAdminModal(false)}
         onSubmit={handleCreateAdmin}
+      />
+
+      {/* School Permissions Modal */}
+      <SchoolPermissionsModal
+        school={selectedSchool as any}
+        isOpen={showSchoolPermissionsModal}
+        onClose={() => {
+          setShowSchoolPermissionsModal(false);
+          setSelectedSchool(null);
+        }}
+        onPermissionsUpdated={() => {
+          // Refresh the users list to show updated permission counts
+          fetchUsers();
+        }}
       />
     </div>
   );

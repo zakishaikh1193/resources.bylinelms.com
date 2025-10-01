@@ -125,7 +125,7 @@ const LoginPage: React.FC = () => {
 
         {/* Footer */}
                  <div className="px-10 lg:px-16 py-6 border-t border-gray-200 flex items-center justify-between text-sm text-gray-500 mt-auto">
-          <span>Copyright @Byline Learning Solutions 2025</span>
+          <span>Copyright @Kodeit Resource Sharing 2025</span>
           <div className="flex space-x-2">
             <div className="w-3 h-3 bg-pink-400 rounded-full"></div>
             <div className="w-3 h-3 bg-blue-400 rounded-full"></div>

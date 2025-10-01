@@ -277,6 +277,31 @@ const validateReview = [
   handleValidationErrors
 ];
 
+// School ID validation
+const validateSchoolId = [
+  param('schoolId')
+    .isInt({ min: 1 })
+    .withMessage('Valid school ID is required'),
+  handleValidationErrors
+];
+
+// School permissions validation
+const validateSchoolPermissions = [
+  body('permissions')
+    .isArray({ min: 0 })
+    .withMessage('Permissions must be an array'),
+  body('permissions.*.subject_id')
+    .isInt({ min: 1 })
+    .withMessage('Valid subject ID is required for each permission'),
+  body('permissions.*.grade_ids')
+    .isArray({ min: 1 })
+    .withMessage('Grade IDs array is required for each permission'),
+  body('permissions.*.grade_ids.*')
+    .isInt({ min: 1 })
+    .withMessage('Valid grade ID is required in grade_ids array'),
+  handleValidationErrors
+];
+
 module.exports = {
   handleValidationErrors,
   validateUserRegistration,
@@ -291,5 +316,7 @@ module.exports = {
   validatePagination,
   validateSearch,
   validateComment,
-  validateReview
+  validateReview,
+  validateSchoolId,
+  validateSchoolPermissions
 };
