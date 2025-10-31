@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Video, Presentation, Activity, ClipboardCheck, Heart, MessageCircle, Calendar, User, BookOpen, Edit, Trash2, Download, GripVertical } from 'lucide-react';
+import { FileText, Video, Presentation, Activity, ClipboardCheck, Heart, MessageCircle, Calendar, User, BookOpen, Edit, Trash2, Download, GripVertical, ArrowRight } from 'lucide-react';
 import { Resource } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -112,8 +112,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   return (
     <div 
       className={`
-        bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden cursor-pointer w-96
-        hover:shadow-xl hover:border-purple-200 transition-all duration-300 group
+        bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden cursor-pointer
+        hover:shadow-xl hover:border-purple-200 transition-all duration-300 group relative
         ${isDragging ? 'rotate-2 shadow-2xl scale-105' : ''}
         ${isDraggable ? 'cursor-grab active:cursor-grabbing' : ''}
         ${dragOverResource?.id === resource.id ? 'ring-2 ring-blue-400 ring-opacity-50' : ''}
@@ -125,30 +125,9 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
       onDrop={handleDrop}
       onDragEnd={handleDragEnd}
     >
-      {/* Preview Image */}
-      {resource.previewImage && (
-        <div className="relative overflow-hidden">
-          <img 
-            src={resource.previewImage} 
-            alt={resource.title}
-            className="w-full h-52 object-cover group-hover:scale-110 transition-transform duration-500"
-            onError={(e) => {
-              const target = e.currentTarget as HTMLImageElement;
-              target.onerror = null;
-              console.log('ResourceCard image failed to load, trying fallback:', target.src);
-              target.src = '/logo.png';
-            }}
-            onLoad={() => {
-              console.log('ResourceCard image loaded successfully:', resource.title);
-            }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-          
-
-
-          {/* Admin Actions Overlay */}
+      {/* Admin Actions Overlay - Top Right */}
           {user?.role === 'admin' && viewMode === 'edit' && (
-            <div className="absolute top-3 right-3 flex items-center space-x-2">
+        <div className="absolute top-3 right-3 flex items-center space-x-2 z-10">
               {/* Drag Handle */}
               {isDraggable && (
                 <div
@@ -180,18 +159,37 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               </button>
             </div>
           )}
+
+      {/* Full Width Preview Image */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+        {resource.previewImage ? (
+          <img 
+            src={resource.previewImage} 
+            alt={resource.title}
+            className="w-full h-20 object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={(e) => {
+              const target = e.currentTarget as HTMLImageElement;
+              target.onerror = null;
+              target.src = '/logo.png';
+            }}
+          />
+        ) : (
+          <div className="w-full h-20 bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+            <TypeIcon className="w-10 h-10 text-white" />
         </div>
       )}
+      </div>
 
       {/* Content */}
       <div className="p-6">
+
         {/* Title */}
-        <h3 className="font-bold text-xl text-gray-900 mb-3 line-clamp-2 group-hover:text-purple-600 transition-colors duration-200 leading-tight">
+        <h3 className="font-bold text-lg text-gray-900 mb-2 line-clamp-2 group-hover:text-purple-600 transition-colors duration-200">
           {resource.title}
         </h3>
         
         {/* Description - Plain text only for cards */}
-        <p className="text-gray-600 line-clamp-2 mb-4 leading-relaxed">
+        <p className="text-gray-600 text-sm line-clamp-3 mb-4 leading-relaxed">
           {(() => {
             // Strip HTML tags and get plain text
             const plainText = resource.description.replace(/<[^>]*>/g, '');
@@ -201,32 +199,40 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           })()}
         </p>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between">
-          {/* Author Info */}
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-white text-sm font-bold shadow-lg">
-              {resource.author.name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2)}
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">{resource.author.name}</p>
-              <div className="flex items-center space-x-1 text-xs text-gray-500">
-                <Calendar size={12} />
-                <span>{new Date(resource.createdAt).toLocaleDateString()}</span>
-              </div>
-            </div>
+        {/* Tags */}
+        {resource.tags && resource.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {resource.tags.slice(0, 3).map((tag, index) => (
+              <span
+                key={typeof tag === 'string' ? tag : index}
+                className={`text-xs px-2 py-1 rounded-full font-medium ${getTagColor(index)}`}
+              >
+                {typeof tag === 'string' ? tag : tag}
+              </span>
+            ))}
+            {resource.tags.length > 3 && (
+              <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 font-medium">
+                +{resource.tags.length - 3} more
+              </span>
+            )}
           </div>
+        )}
 
-          {/* Status Badge */}
-          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${
-            resource.status === 'published' 
-              ? 'bg-green-100 text-green-800 border-2 border-green-200' 
-              : resource.status === 'draft'
-              ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-200'
-              : 'bg-gray-100 text-gray-800 border-2 border-gray-200'
-          }`}>
-            {resource.status.charAt(0).toUpperCase() + resource.status.slice(1)}
+        {/* Footer - Subject Badge Only */}
+        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+            {resource.subject || 'General'}
           </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onView?.(resource);
+            }}
+            className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center"
+          >
+            View Details
+            <ArrowRight className="w-4 h-4 ml-1" />
+          </button>
         </div>
       </div>
     </div>

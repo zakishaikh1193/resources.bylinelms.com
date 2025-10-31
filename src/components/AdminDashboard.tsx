@@ -60,6 +60,10 @@ interface Resource {
 const AdminDashboard: React.FC = () => {
   const { user, token, logout } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
+  const [userPage, setUserPage] = useState<number>(1);
+  const [userLimit, setUserLimit] = useState<number>(10);
+  const [userTotal, setUserTotal] = useState<number>(0);
+  const [userPages, setUserPages] = useState<number>(0);
   const [resources, setResources] = useState<Resource[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);
@@ -158,6 +162,11 @@ const AdminDashboard: React.FC = () => {
     fetchDashboardStats();
   }, [token]);
 
+  // Refetch users when pagination or search/filter context changes
+  useEffect(() => {
+    fetchUsers();
+  }, [userPage, userLimit, searchTerm, filterStatus, activeTab]);
+
   // Handle click outside to close user dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -178,7 +187,17 @@ const AdminDashboard: React.FC = () => {
       return;
     }
     try {
-      const response = await fetch(API_ENDPOINTS.USERS, {
+      const params = new URLSearchParams();
+      params.set('page', String(userPage));
+      params.set('limit', String(userLimit));
+      if (searchTerm) params.set('search', searchTerm);
+      if (filterStatus && filterStatus !== 'all') params.set('status', filterStatus);
+      // Scope by role based on active tab for better UX
+      if (activeTab === 'users') params.set('role', 'school');
+      if (activeTab === 'settings') params.set('role', 'admin');
+
+      const url = `${API_ENDPOINTS.USERS}?${params.toString()}`;
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -188,6 +207,18 @@ const AdminDashboard: React.FC = () => {
       const data = await response.json();
       if (data.success) {
         setUsers(data.data.users);
+        // If API returns pagination object, store it; otherwise derive
+        const pagination = data.data.pagination || {};
+        if (pagination.total !== undefined) setUserTotal(pagination.total);
+        if (pagination.pages !== undefined) setUserPages(pagination.pages);
+        // Derive pages if not provided
+        if (pagination.total === undefined && Array.isArray(data.data.users)) {
+          const total = pagination.total ?? data.data.total ?? users.length;
+          if (typeof total === 'number') {
+            setUserTotal(total);
+            setUserPages(Math.max(1, Math.ceil(total / userLimit)));
+          }
+        }
       } else {
         console.error('Failed to fetch users:', data.message);
       }
@@ -542,26 +573,35 @@ const AdminDashboard: React.FC = () => {
   };
 
   // Filter users based on current tab
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.organization?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesRole = filterRole === 'all' || user.role === filterRole;
-    const matchesStatus = filterStatus === 'all' || user.status === filterStatus;
+  // Users are already scoped/paginated by the API based on query params above.
+  const filteredUsers = users;
 
-    // In School Management tab, show only schools
-    if (activeTab === 'users') {
-      return user.role === 'school' && matchesSearch && matchesRole && matchesStatus;
+  // Build a simple list of page numbers for pagination UI
+  const buildPageList = (pages: number, current: number) => {
+    const total = Math.max(1, pages || 1);
+    const maxToShow = 10; // simple, show up to 10 pages
+    const list: number[] = [];
+    if (total <= maxToShow) {
+      for (let i = 1; i <= total; i++) list.push(i);
+      return list;
     }
-    
-    // In Settings tab, show only admins
-    if (activeTab === 'settings') {
-      return user.role === 'admin' && matchesSearch && matchesRole && matchesStatus;
+    // Center current with window of 5 around
+    const window = 2;
+    let start = Math.max(1, current - window);
+    let end = Math.min(total, current + window);
+    // Ensure at least 5 items window when possible
+    while (end - start < 4) {
+      if (start > 1) start--;
+      else if (end < total) end++;
+      else break;
     }
-
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+    // Always include first/last
+    const set = new Set<number>();
+    set.add(1);
+    for (let i = start; i <= end; i++) set.add(i);
+    set.add(total);
+    return Array.from(set).sort((a, b) => a - b);
+  };
 
   // Separate lists for different contexts
   const schoolUsers = users.filter(user => user.role === 'school');
@@ -1428,7 +1468,7 @@ const AdminDashboard: React.FC = () => {
                       {/* Resources in this grade */}
                       <div className="space-y-2">
                         {gradeResources.map((resource) => {
-                          const typeName = resourceTypes.find(t => t.type_id === resource.type_id)?.type_name || 'Unknown';
+                          const typeName = resource.type_name || 'Unknown';
                           const IconComponent = getFileIcon(typeName);
                           
                           return (
@@ -1556,6 +1596,49 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             {/* Users Table */}
+            {/* Top Pagination (numbered) */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm text-gray-600">
+                Page {userPage} of {Math.max(1, userPages || 1)}
+                {userTotal ? (
+                  <span className="ml-2">• {userTotal} total</span>
+                ) : null}
+              </div>
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                  disabled={userPage <= 1}
+                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Prev
+                </button>
+                {buildPageList(userPages || 1, userPage).map((n, idx, arr) => {
+                  const prev = idx > 0 ? arr[idx - 1] : undefined;
+                  const showDots = prev !== undefined && n - prev > 1;
+                  return (
+                    <React.Fragment key={`pg-top-${n}`}>
+                      {showDots && <span className="px-1 text-gray-400">…</span>}
+                      <button
+                        onClick={() => setUserPage(n)}
+                        className={`px-3 py-1.5 text-sm rounded-md border ${
+                          n === userPage ? 'border-blue-600 text-white bg-blue-600' : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+                <button
+                  onClick={() => setUserPage(p => (userPages ? Math.min(userPages, p + 1) : p + 1))}
+                  disabled={userPages ? userPage >= userPages : false}
+                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1872,7 +1955,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="absolute left-0 top-1/2 transform -translate-y-1/2 z-10">
                   <button
                     onClick={() => scrollKanban('left', contentKanbanRef)}
-                    className="w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                    className="w-16 h-16 bg-blue-300 text-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-blue-200 transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5 text-gray-600" />
                   </button>
@@ -1881,7 +1964,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="absolute right-0 top-1/2 transform -translate-y-1/2 z-10">
                   <button
                     onClick={() => scrollKanban('right', contentKanbanRef)}
-                    className="w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                    className="w-16 h-16 bg-blue-300 text-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-blue-200 transition-colors"
                   >
                     <ArrowRight className="w-5 h-5 text-gray-600" />
                   </button>
@@ -2160,6 +2243,51 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 ))}
               </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-white">
+                <div className="text-sm text-gray-600">
+                  Page {userPage} of {Math.max(1, userPages || 1)}
+                  {userTotal ? (
+                    <span className="ml-2">• {userTotal} total</span>
+                  ) : null}
+                </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                    disabled={userPage <= 1}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Prev
+                  </button>
+                  {buildPageList(userPages || 1, userPage).map((n, idx, arr) => {
+                    const prev = idx > 0 ? arr[idx - 1] : undefined;
+                    const showDots = prev !== undefined && n - prev > 1;
+                    return (
+                      <React.Fragment key={`pg-${n}`}>
+                        {showDots && <span className="px-1 text-gray-400">…</span>}
+                        <button
+                          onClick={() => setUserPage(n)}
+                          className={`px-3 py-1.5 text-sm rounded-md border ${
+                            n === userPage
+                              ? 'border-blue-600 text-white bg-blue-600'
+                              : 'border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                  <button
+                    onClick={() => setUserPage(p => (userPages ? Math.min(userPages, p + 1) : p + 1))}
+                    disabled={userPages ? userPage >= userPages : false}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2295,7 +2423,7 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Admins Table */}
+            {/* Admins Table */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -2321,6 +2449,51 @@ const AdminDashboard: React.FC = () => {
                                   <div className="text-sm font-medium text-gray-900">{admin.name}</div>
                                   <div className="text-sm text-gray-500">{admin.email}</div>
                                 </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-white">
+                <div className="text-sm text-gray-600">
+                  Page {userPage} of {Math.max(1, userPages || 1)}
+                  {userTotal ? (
+                    <span className="ml-2">• {userTotal} total</span>
+                  ) : null}
+                </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                    disabled={userPage <= 1}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Prev
+                  </button>
+                  {buildPageList(userPages || 1, userPage).map((n, idx, arr) => {
+                    const prev = idx > 0 ? arr[idx - 1] : undefined;
+                    const showDots = prev !== undefined && n - prev > 1;
+                    return (
+                      <React.Fragment key={`pg-admin-${n}`}>
+                        {showDots && <span className="px-1 text-gray-400">…</span>}
+                        <button
+                          onClick={() => setUserPage(n)}
+                          className={`px-3 py-1.5 text-sm rounded-md border ${
+                            n === userPage
+                              ? 'border-blue-600 text-white bg-blue-600'
+                              : 'border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                  <button
+                    onClick={() => setUserPage(p => (userPages ? Math.min(userPages, p + 1) : p + 1))}
+                    disabled={userPages ? userPage >= userPages : false}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">

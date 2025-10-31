@@ -345,8 +345,8 @@ const SchoolDashboard: React.FC = () => {
         const resourcesWithTags = data.data.resources || [];
         // Sort by creation date descending (newest first) and filter only published
         const sortedResources = resourcesWithTags
-          .filter(resource => resource.status === 'published')
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          .filter((resource: Resource) => resource.status === 'published')
+          .sort((a: Resource, b: Resource) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setResources(sortedResources);
       } else {
         console.error('Failed to fetch resources:', data.message);
@@ -795,6 +795,25 @@ const SchoolDashboard: React.FC = () => {
     return availableTypes.find(t => t.type_id === typeId)?.type_name || 'Unknown';
   };
 
+  // Build subject options dynamically from actually available resources for this school
+  const getAssignedSubjectOptions = () => {
+    const subjectIdSet = new Set<number>();
+    resources.forEach(r => subjectIdSet.add(r.subject_id));
+    // Map to objects with subject_id and subject_name using metadata for labels
+    return availableSubjects
+      .filter(s => subjectIdSet.has(s.subject_id))
+      .map(s => ({ id: s.subject_id, name: s.subject_name }));
+  };
+
+  // Build resource type options dynamically from actually available resources for this school
+  const getAssignedTypeOptions = () => {
+    const typeIdSet = new Set<number>();
+    resources.forEach(r => typeIdSet.add(r.type_id));
+    return availableTypes
+      .filter(t => typeIdSet.has(t.type_id))
+      .map(t => ({ id: t.type_id, name: t.type_name }));
+  };
+
   // Get resources for a specific grade (sorted by newest first)
   const getResourcesForGrade = (gradeId: number) => {
     return filteredResources
@@ -948,7 +967,7 @@ const SchoolDashboard: React.FC = () => {
                   Welcome back, {user?.name}!
                 </h2>
                 <p className="text-gray-600">
-                  Discover and download educational resources shared by the admin.
+                  Discover and download educational resources.
                 </p>
               </div>
 
@@ -1017,7 +1036,10 @@ const SchoolDashboard: React.FC = () => {
                  
                  {/* Mini Kanban for Recent Resources */}
                  <div className="flex space-x-6 overflow-x-auto pb-4 kanban-scroll">
-                   {availableGrades.slice(0, 4).map((grade) => {
+                   {availableGrades
+                     .filter(g => getResourcesForGrade(g.grade_id).length > 0)
+                     .slice(0, 4)
+                     .map((grade) => {
                      // Get the most recent resources for this grade (newest first)
                      const gradeResources = getResourcesForGrade(grade.grade_id).slice(0, 3);
                      const gradeColor = getGradeColor(grade.grade_id);
@@ -1025,7 +1047,7 @@ const SchoolDashboard: React.FC = () => {
                      if (gradeResources.length === 0) return null;
                      
                      return (
-                       <div key={grade.grade_id} className="flex-shrink-0 w-72">
+                       <div key={grade.grade_id} className="flex-shrink-0 w-96">
                          {/* Grade Column Header */}
                          <div className={`${gradeColor.bg} ${gradeColor.border} rounded-t-xl p-3 mb-3`}>
                            <div className="flex items-center justify-between">
@@ -1048,56 +1070,61 @@ const SchoolDashboard: React.FC = () => {
                              return (
                                <div 
                                  key={resource.resource_id} 
-                                 className="group bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-blue-200 transition-all duration-200 transform hover:-translate-y-0.5"
+                                 className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-blue-200 transition-all duration-200 transform hover:-translate-y-0.5 cursor-pointer"
+                                 onClick={() => handleViewResource(resource)}
                                >
-                                 {/* Thumbnail Image */}
-                                 <div className="aspect-video bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-hidden">
-                                   <img
-                                     src={getPreviewImage(resource)}
-                                     alt={resource.title}
-                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                     onError={(e) => {
-                                       const target = e.currentTarget as HTMLImageElement;
-                                       target.onerror = null;
-                                       target.src = '/logo.png';
-                                     }}
-                                   />
+                                 {/* Full Width Preview Image */}
+                                 <div className="relative overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                                   {resource.preview_image ? (
+                                     <img
+                                       src={getPreviewImage(resource)}
+                                       alt={resource.title}
+                                       className="w-full h-20 object-cover group-hover:scale-105 transition-transform duration-300"
+                                       onError={(e) => {
+                                         const target = e.currentTarget as HTMLImageElement;
+                                         target.onerror = null;
+                                         target.src = '/logo.png';
+                                       }}
+                                     />
+                                   ) : (
+                                     <div className="w-full h-20 bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+                                       <IconComponent className="w-8 h-8 text-white" />
+                                     </div>
+                                   )}
                                  </div>
 
                                  {/* Content */}
                                  <div className="p-3">
+
                                    {/* Title */}
-                                   <h4 className="font-bold text-gray-900 text-xs mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                                   <h4 className="font-bold text-gray-900 text-xs mb-1.5 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">
                                      {resource.title}
                                    </h4>
                                    
                                    {/* Description */}
-                                   <p className="text-xs text-gray-600 line-clamp-1 leading-relaxed mb-2">
+                                   <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed mb-2">
                                      {(() => {
                                        // Strip HTML tags and get plain text
-                                       const plainText = resource.description.replace(/<[^>]*>/g, '');
-                                                                               // Take first 20 letters
-                                        const firstTwentyLetters = plainText.trim().substring(0, 20);
-                                        return firstTwentyLetters + (plainText.trim().length > 20 ? '...' : '');
+                                       const plainText = resource.description.replace(/<[^>]*>/g, '').trim();
+                                       return plainText || 'No description available';
                                      })()}
                                    </p>
 
-                                   {/* Subject and Type */}
-                                   <div className="flex items-center justify-between mb-2">
-                                     <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded-full">
+                                   {/* Footer - Subject Badge and View Button */}
+                                   <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                                     <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
                                        {getSubjectName(resource.subject_id)}
                                      </span>
-                                     <span className="text-xs text-gray-500">{typeName}</span>
+                                     <button
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         handleViewResource(resource);
+                                       }}
+                                       className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center"
+                                     >
+                                       <Eye className="w-3 h-3" />
+                                     </button>
                                    </div>
-
-                                   {/* Action Button */}
-                                   <button
-                                     onClick={() => handleViewResource(resource)}
-                                     className="w-full flex items-center justify-center space-x-1 px-2 py-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-md hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02] text-xs"
-                                   >
-                                     <Eye className="w-3 h-3" />
-                                     <span>View</span>
-                                   </button>
                                  </div>
                                </div>
                              );
@@ -1117,7 +1144,7 @@ const SchoolDashboard: React.FC = () => {
                                              <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">Educational Resources</h2>
-                    <p className="text-gray-600">Browse and download resources shared by the admin</p>
+                    <p className="text-gray-600">Browse and download resources shared</p>
                   </div>
                   
                   {/* Search and Filters */}
@@ -1155,7 +1182,7 @@ const SchoolDashboard: React.FC = () => {
                   <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       <MultiSelect
-                        options={availableSubjects.map(s => ({ id: s.subject_id, name: s.subject_name }))}
+                        options={getAssignedSubjectOptions()}
                         selectedValues={filters.subjects}
                         onSelectionChange={(values) => setFilters(prev => ({ ...prev, subjects: values }))}
                         placeholder="Select subjects..."
@@ -1163,7 +1190,7 @@ const SchoolDashboard: React.FC = () => {
                       />
 
                       <MultiSelect
-                        options={availableTypes.map(t => ({ id: t.type_id, name: t.type_name }))}
+                        options={getAssignedTypeOptions()}
                         selectedValues={filters.types}
                         onSelectionChange={(values) => setFilters(prev => ({ ...prev, types: values }))}
                         placeholder="Select resource types..."
@@ -1187,7 +1214,7 @@ const SchoolDashboard: React.FC = () => {
                   <div className="absolute left-0 top-1/2 transform -translate-y-1/2 z-10">
                     <button
                       onClick={() => scrollKanban('left')}
-                      className="w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                      className="w-16 h-16 bg-blue-300 text-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-blue-200 transition-colors"
                     >
                       <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
@@ -1196,13 +1223,13 @@ const SchoolDashboard: React.FC = () => {
                   <div className="absolute right-0 top-1/2 transform -translate-y-1/2 z-10">
                     <button
                       onClick={() => scrollKanban('right')}
-                      className="w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                      className="w-16 h-16 bg-blue-300 text-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-blue-200 transition-colors"
                     >
                       <ArrowRight className="w-5 h-5 text-gray-600" />
                     </button>
                   </div>
 
-                                     {/* Kanban Board */}
+                 {/* Kanban Board */}
                                        <div 
                       ref={kanbanRef}
                       className="flex space-x-8 overflow-x-auto pb-6 kanban-scroll"
@@ -1211,13 +1238,15 @@ const SchoolDashboard: React.FC = () => {
                         scrollbarColor: '#CBD5E1 #F1F5F9'
                       }}
                     >
-                     {availableGrades.map((grade) => {
+                    {availableGrades
+                      .filter(g => getResourcesForGrade(g.grade_id).length > 0)
+                      .map((grade) => {
                        // Get resources for this grade, sorted by newest first
                        const gradeResources = getResourcesForGrade(grade.grade_id);
                        const gradeColor = getGradeColor(grade.grade_id);
                        
                        return (
-                                                   <div key={grade.grade_id} className="flex-shrink-0 w-72">
+                                                   <div key={grade.grade_id} className="flex-shrink-0 w-96">
                           {/* Grade Column Header */}
                           <div className={`${gradeColor.bg} ${gradeColor.border} rounded-t-xl p-4 mb-4`}>
                             <div className="flex items-center justify-between">
@@ -1240,58 +1269,73 @@ const SchoolDashboard: React.FC = () => {
                               return (
                                 <div 
                                   key={resource.resource_id} 
-                                  className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:border-blue-200 transition-all duration-300 transform hover:-translate-y-1"
+                                  className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:border-blue-200 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer"
+                                  onClick={() => {
+                                    setSelectedResource(resource);
+                                    setIsViewModalOpen(true);
+                                  }}
                                 >
-                                  
-
-                                  {/* Thumbnail Image */}
-                                  <div className="aspect-video bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-hidden">
-                                    <img
-                                      src={getPreviewImage(resource)}
-                                      alt={resource.title}
-                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                      onError={(e) => {
-                                        const target = e.currentTarget as HTMLImageElement;
-                                        target.onerror = null;
-                                        target.src = '/logo.png';
-                                      }}
-                                    />
+                                  {/* Full Width Preview Image */}
+                                  <div className="relative overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                                    {resource.preview_image ? (
+                                      <img
+                                        src={getPreviewImage(resource)}
+                                        alt={resource.title}
+                                        className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-300"
+                                        onError={(e) => {
+                                          const target = e.currentTarget as HTMLImageElement;
+                                          target.onerror = null;
+                                          target.src = '/logo.png';
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="w-full h-20 bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+                                        <IconComponent className="w-12 h-12 text-white" />
+                                      </div>
+                                    )}
                                   </div>
 
-                                                                     {/* Content */}
-                                   <div className="p-3">
-                                                                         {/* Title */}
-                                     <h4 className="font-bold text-gray-900 text-xs mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">
-                                       {resource.title}
-                                     </h4>
-                                     
-                                     {/* Description */}
-                                     <p className="text-xs text-gray-600 line-clamp-1 leading-relaxed mb-2">
-                                       {(() => {
-                                         // Strip HTML tags and get plain text
-                                         const plainText = resource.description.replace(/<[^>]*>/g, '');
-                                         // Take first 20 letters
-                                         const firstTwentyLetters = plainText.trim().substring(0, 20);
-                                         return firstTwentyLetters + (plainText.trim().length > 20 ? '...' : '');
-                                       })()}
-                                     </p>
+                                  {/* Content */}
+                                  <div className="p-4">
 
-                                   {/* Subject and Type */}
-                                   <div className="flex items-center justify-between mb-2">
-                                     <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded-full">
-                                       {getSubjectName(resource.subject_id)}
-                                     </span>
-                                     <span className="text-xs text-gray-500">{typeName}</span>
-                                   </div>
+                                    {/* Title */}
+                                    <h4 className="font-bold text-gray-900 text-sm mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">
+                                      {resource.title}
+                                    </h4>
+                                    
+                                    {/* Description */}
+                                    <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed mb-3">
+                                      {(() => {
+                                        // Strip HTML tags and get plain text
+                                        const plainText = resource.description.replace(/<[^>]*>/g, '').trim();
+                                        return plainText || 'No description available';
+                                      })()}
+                                    </p>
 
-                                                                         {/* Action Button */}
-                                   <button
-                                     onClick={() => handleViewResource(resource)}
-                                     className="w-full flex items-center justify-center space-x-1 px-2 py-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-md hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02] text-xs"
-                                   >
-                                     <Eye className="w-3 h-3" />
-                                     <span>View</span>
-                                   </button>
+                                    {/* Tags */}
+                                    {resource.tags && resource.tags.length > 0 && (
+                                      <div className="flex flex-wrap gap-1.5 mb-3">
+                                        {resource.tags.slice(0, 3).map((tag, index) => (
+                                          <span
+                                            key={tag.tag_id}
+                                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                              index === 0 ? 'bg-pink-100 text-pink-700' :
+                                              index === 1 ? 'bg-blue-100 text-blue-700' :
+                                              'bg-green-100 text-green-700'
+                                            }`}
+                                          >
+                                            {tag.tag_name}
+                                          </span>
+                                        ))}
+                                        {resource.tags.length > 3 && (
+                                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                                            +{resource.tags.length - 3}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    
                                   </div>
                                 </div>
                               );

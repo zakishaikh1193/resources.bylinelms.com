@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const { getClientIp } = require('../utils/request');
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
@@ -85,7 +86,7 @@ const createResource = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, resource_id, details, ip_address) VALUES (?, ?, ?, ?, ?)',
-      [req.user.user_id, 'RESOURCE_CREATED', resourceId, JSON.stringify({ title, type: status }), req.ip]
+      [req.user.user_id, 'RESOURCE_CREATED', resourceId, JSON.stringify({ title, type: status }), getClientIp(req)]
     );
 
     console.log(`Resource created: ${title} by ${req.user.email}`);
@@ -554,7 +555,7 @@ const getResourceById = async (req, res) => {
     // Record view (for both authenticated and anonymous users)
     await pool.execute(
       'INSERT INTO resource_views (resource_id, user_id, ip_address, user_agent) VALUES (?, ?, ?, ?)',
-      [id, req.user?.user_id || null, req.ip, req.get('User-Agent')]
+      [id, req.user?.user_id || null, getClientIp(req), req.get('User-Agent')]
     );
 
     // Update view count
@@ -757,7 +758,7 @@ const deleteResource = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [req.user.user_id, 'RESOURCE_DELETED', JSON.stringify({ resourceId: id }), req.ip]
+      [req.user.user_id, 'RESOURCE_DELETED', JSON.stringify({ resourceId: id }), getClientIp(req)]
     );
 
     console.log(`Resource deleted: ${id} by ${req.user.email}`);
@@ -857,7 +858,7 @@ const downloadResource = async (req, res) => {
     // Log activity to activity_logs table
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, resource_id, details, ip_address) VALUES (?, ?, ?, ?, ?)',
-      [req.user?.user_id || null, 'RESOURCE_DOWNLOADED', id, JSON.stringify({ title: resource.title }), req.ip]
+      [req.user?.user_id || null, 'RESOURCE_DOWNLOADED', id, JSON.stringify({ title: resource.title }), getClientIp(req)]
     );
 
     // If it's a school user, also log to school_activity_logs table

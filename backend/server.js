@@ -16,6 +16,9 @@ const schoolPermissionsRoutes = require('./routes/schoolPermissions');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// If running behind a reverse proxy/load balancer (e.g., Nginx), trust proxy to get real client IP
+app.set('trust proxy', true);
+
 // CORS configuration - optimized for large uploads
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://resources.bylinelms.com'],

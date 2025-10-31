@@ -1,8 +1,8 @@
 // API Configuration
 
 
-// export const API_BASE_URL = 'https://resources.bylinelms.com/api';
-export const API_BASE_URL = 'http://localhost:5000/api';
+export const API_BASE_URL = 'https://resources.bylinelms.com/api';
+// export const API_BASE_URL = 'http://localhost:5000/api';
 
 
 export const API_ENDPOINTS = {
@@ -80,18 +80,6 @@ export const getFileUrl = (filePath: string): string => {
   // Remove leading './' or '/'
   normalized = normalized.replace(/^\.\//, '');
   normalized = normalized.replace(/^\/+/, '');
-
-  // Handle backend/uploads/ prefix - remove backend/ part
-  if (normalized.startsWith('backend/uploads/')) {
-    normalized = normalized.replace('backend/', '');
-    console.log('Removed backend/ prefix, normalized:', normalized);
-  }
-
-  // Ensure the path starts with 'uploads/' if it doesn't already
-  if (!normalized.startsWith('uploads/')) {
-    normalized = 'uploads/' + normalized;
-    console.log('Added uploads/ prefix, normalized:', normalized);
-  }
 
   // Ensure no double slashes
   normalized = normalized.replace(/\/+/g, '/');

@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../config/database');
+const { getClientIp } = require('../utils/request');
 const { validationResult } = require('express-validator');
 
 // Register new user
@@ -47,7 +48,7 @@ const register = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [result.insertId, 'USER_REGISTER', JSON.stringify({ email, role: 'school' }), req.ip]
+      [result.insertId, 'USER_REGISTER', JSON.stringify({ email, role: 'school' }), getClientIp(req)]
     );
 
     console.log(`New user registered: ${email}`);
@@ -116,7 +117,7 @@ const login = async (req, res) => {
     // Log activity to activity_logs table
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [user.user_id, 'USER_LOGIN', JSON.stringify({ email, role: user.role }), req.ip]
+      [user.user_id, 'USER_LOGIN', JSON.stringify({ email, role: user.role }), getClientIp(req)]
     );
 
     // If it's a school user, also log to school_activity_logs table
@@ -216,7 +217,7 @@ const updateProfile = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [req.user.user_id, 'USER_UPDATE', JSON.stringify({ updatedFields: req.body }), req.ip]
+      [req.user.user_id, 'USER_UPDATE', JSON.stringify({ updatedFields: req.body }), getClientIp(req)]
     );
 
     console.log(`User profile updated: ${req.user.email}`);
@@ -274,7 +275,7 @@ const changePassword = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [req.user.user_id, 'PASSWORD_CHANGE', JSON.stringify({ changed: true }), req.ip]
+      [req.user.user_id, 'PASSWORD_CHANGE', JSON.stringify({ changed: true }), getClientIp(req)]
     );
 
     console.log(`Password changed for user: ${req.user.email}`);
@@ -333,7 +334,7 @@ const createSchoolAccount = async (req, res) => {
         createdUserId: result.insertId, 
         email, 
         organization 
-      }), req.ip]
+      }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} created school account: ${email}`);
@@ -393,7 +394,7 @@ const createAdminAccount = async (req, res) => {
         createdUserId: result.insertId, 
         email, 
         organization 
-      }), req.ip]
+      }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} created admin account: ${email}`);
@@ -621,7 +622,7 @@ const updateUser = async (req, res) => {
       [req.user.user_id, 'ADMIN_UPDATE_USER', JSON.stringify({ 
         targetUserId: userId, 
         updatedFields: req.body 
-      }), req.ip]
+      }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} updated user: ${userId}`);
@@ -672,7 +673,7 @@ const resetUserPassword = async (req, res) => {
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
       [req.user.user_id, 'ADMIN_RESET_PASSWORD', JSON.stringify({ 
         targetUserId: userId 
-      }), req.ip]
+      }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} reset password for user: ${userId}`);
@@ -724,7 +725,7 @@ const updateUserStatus = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [req.user.user_id, 'ADMIN_UPDATE_STATUS', JSON.stringify({ targetUserId: userId, status }), req.ip]
+      [req.user.user_id, 'ADMIN_UPDATE_STATUS', JSON.stringify({ targetUserId: userId, status }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} updated user status: ${userId} -> ${status}`);
@@ -787,7 +788,7 @@ const deleteUser = async (req, res) => {
     // Log activity
     await pool.execute(
       'INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
-      [req.user.user_id, 'ADMIN_DELETE_USER', JSON.stringify({ targetUserId: userId }), req.ip]
+      [req.user.user_id, 'ADMIN_DELETE_USER', JSON.stringify({ targetUserId: userId }), getClientIp(req)]
     );
 
     console.log(`Admin ${req.user.email} deleted user: ${userId}`);
